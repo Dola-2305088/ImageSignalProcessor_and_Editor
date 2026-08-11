@@ -5,8 +5,8 @@ Developed by Shreya and Dola.
 /*pip install numpy pillow matplotlib PyQt6*/
 
 /*pip install numpy opencv-python matplotlib*/
-
 /*pip install pillow*/
+/*pip install "flet[all]"*/
 
 /*ImageSignalProcessor_and_Editor/
 │

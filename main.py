@@ -1,18 +1,12 @@
-import tkinter as tk
+import flet as ft
 
 from ui.main_window import ImageProcessorApp
 
 
-def main():
-
-    root = tk.Tk()
-
-    app = ImageProcessorApp(root)
-
-    root.mainloop()
+def main(page: ft.Page):
+    ImageProcessorApp(page)
 
 
 if __name__ == "__main__":
-    main()
-
+    ft.run(main)
     #python main.py
