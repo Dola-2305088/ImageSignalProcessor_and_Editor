@@ -6,6 +6,8 @@ Developed by Shreya and Dola.
 
 /*pip install numpy opencv-python matplotlib*/
 
+/*pip install pillow*/
+
 /*ImageSignalProcessor_and_Editor/
 │
 ├── main.py
