@@ -225,6 +225,10 @@ class ImageProcessorApp:
         )
 
         self.page.add(self.root)
+        # Start rotating Explore-the-Lab feature orbit
+        self.page.run_task(
+        self.home_view.start_orbit_animation
+        )
 
     # =========================================================
     # NAVIGATION
