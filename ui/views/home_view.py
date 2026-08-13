@@ -5,6 +5,13 @@ import flet as ft
 
 from ui.theme import AppColors, AppLayout, AppAnimations
 
+# Put your background image at: assets/images/galaxy.jpg
+HERO_BACKGROUND_IMAGE = "images/Nasa2.jpg"
+
+# Background image used inside Explore the Lab / Round Console.
+# You can use the same image as the Hero or a different one.
+LAB_BACKGROUND_IMAGE = "images/Galaxy1.jpg"
+
 
 class HomeView:
     """
@@ -37,12 +44,20 @@ class HomeView:
 
         # Hero Signal Workspace animation state.
         self._signal_phase = 0.0
+        self._signal_scan_phase = 0.0
         self._signal_bars = []
+        self._signal_particles = []
+        self._signal_hovered = False
+
         self.signal_console = None
         self.signal_wave_area = None
         self.signal_scan_line = None
         self.signal_live_dot = None
         self.signal_frequency_text = None
+
+        # Soft ambient hero glows.
+        self.hero_glow_left = None
+        self.hero_glow_right = None
 
         self.control = self._build()
 
@@ -74,11 +89,29 @@ class HomeView:
     # =========================================================
 
     def _build_hero(self):
+        """
+        Premium centered hero.
+
+        The whole landing message now sits on one visual axis:
+        status -> brand -> title -> subtitle -> actions -> session -> live signal.
+        This gives the Home page a cleaner, more professional application feel.
+        """
+
         ready_badge = ft.Container(
-            padding=ft.Padding.symmetric(horizontal=11, vertical=6),
-            bgcolor="#0B1D1A",
-            border=ft.Border.all(1, "#17483D"),
+            padding=ft.Padding.symmetric(
+                horizontal=12,
+                vertical=6,
+            ),
+            bgcolor="#0A1A17",
+            border=ft.Border.all(
+                1,
+                "#17483D",
+            ),
             border_radius=100,
+            shadow=ft.BoxShadow(
+                blur_radius=12,
+                color="#2234D399",
+            ),
             content=ft.Row(
                 tight=True,
                 spacing=7,
@@ -88,12 +121,46 @@ class HomeView:
                         height=8,
                         bgcolor=AppColors.GREEN,
                         border_radius=100,
+                        shadow=ft.BoxShadow(
+                            blur_radius=8,
+                            color="#6634D399",
+                        ),
                     ),
                     ft.Text(
                         "SYSTEM READY",
                         size=8,
                         weight=ft.FontWeight.BOLD,
                         color=AppColors.GREEN_LIGHT,
+                    ),
+                ],
+            ),
+        )
+
+        eyebrow = ft.Container(
+            padding=ft.Padding.symmetric(
+                horizontal=12,
+                vertical=6,
+            ),
+            border_radius=100,
+            bgcolor="#0A1422",
+            border=ft.Border.all(
+                1,
+                "#223552",
+            ),
+            content=ft.Row(
+                tight=True,
+                spacing=7,
+                controls=[
+                    ft.Icon(
+                        ft.Icons.WAVES,
+                        size=13,
+                        color=AppColors.CYAN,
+                    ),
+                    ft.Text(
+                        "SIGNAL STUDIO",
+                        size=8,
+                        weight=ft.FontWeight.BOLD,
+                        color=AppColors.CYAN_LIGHT,
                     ),
                 ],
             ),
@@ -106,6 +173,15 @@ class HomeView:
             bgcolor=AppColors.BLUE,
             color=AppColors.WHITE,
             elevation=0,
+            style=ft.ButtonStyle(
+                padding=ft.Padding.symmetric(
+                    horizontal=20,
+                    vertical=14,
+                ),
+                shape=ft.RoundedRectangleBorder(
+                    radius=13,
+                ),
+            ),
         )
 
         browse_button = ft.OutlinedButton(
@@ -114,33 +190,73 @@ class HomeView:
             on_click=self.on_open_image,
             style=ft.ButtonStyle(
                 color=AppColors.CYAN_LIGHT,
-                side=ft.BorderSide(1, AppColors.BORDER_LIGHT),
+                padding=ft.Padding.symmetric(
+                    horizontal=20,
+                    vertical=14,
+                ),
+                shape=ft.RoundedRectangleBorder(
+                    radius=13,
+                ),
+                side=ft.BorderSide(
+                    1,
+                    AppColors.BORDER_LIGHT,
+                ),
             ),
         )
 
-        left = ft.Column(
-            expand=True,
-            spacing=15,
+        session_strip = ft.Container(
+            width=470,
+            padding=ft.Padding.symmetric(
+                horizontal=14,
+                vertical=10,
+            ),
+            bgcolor="#0A111C",
+            border=ft.Border.all(
+                1,
+                AppColors.BORDER_SOFT,
+            ),
+            border_radius=12,
+            content=ft.Row(
+                alignment=ft.MainAxisAlignment.CENTER,
+                spacing=9,
+                controls=[
+                    ft.Icon(
+                        ft.Icons.INSERT_PHOTO_OUTLINED,
+                        size=15,
+                        color=AppColors.MUTED_2,
+                    ),
+                    ft.Text(
+                        "CURRENT SESSION",
+                        size=8,
+                        weight=ft.FontWeight.BOLD,
+                        color=AppColors.MUTED_2,
+                    ),
+                    ft.Container(
+                        width=1,
+                        height=18,
+                        bgcolor=AppColors.BORDER_SOFT,
+                    ),
+                    self.session_name_text,
+                ],
+            ),
+        )
+
+        # Decorative centered accent line below the title.
+        accent_line = ft.Row(
             alignment=ft.MainAxisAlignment.CENTER,
+            spacing=7,
             controls=[
-                ft.Row(controls=[ready_badge]),
-                ft.Text(
-                    "SIGNAL STUDIO",
-                    size=10,
-                    weight=ft.FontWeight.BOLD,
-                    color=AppColors.CYAN,
-                ),
-                ft.Text(
-                    "Image Signal Processor\n& Editor",
-                    size=38,
-                    weight=ft.FontWeight.BOLD,
-                    color=AppColors.TEXT,
-                    height=1.05,
+                ft.Container(
+                    width=30,
+                    height=3,
+                    border_radius=3,
+                    bgcolor=AppColors.CYAN,
+                    opacity=0.8,
                 ),
                 ft.Container(
-                    width=86,
-                    height=4,
-                    border_radius=4,
+                    width=56,
+                    height=3,
+                    border_radius=3,
                     gradient=ft.LinearGradient(
                         begin=ft.Alignment.CENTER_LEFT,
                         end=ft.Alignment.CENTER_RIGHT,
@@ -151,68 +267,225 @@ class HomeView:
                         ],
                     ),
                 ),
-                ft.Text(
-                    "Explore images as two-dimensional signals through spatial "
-                    "filtering, Fourier analysis, compression, texture and color.",
-                    size=12,
-                    color=AppColors.MUTED,
-                    height=1.5,
-                ),
-                ft.Row(
-                    wrap=True,
-                    spacing=10,
-                    controls=[start_button, browse_button],
-                ),
                 ft.Container(
-                    padding=ft.Padding.symmetric(horizontal=11, vertical=8),
-                    bgcolor="#0A111D",
-                    border=ft.Border.all(1, AppColors.BORDER_SOFT),
-                    border_radius=11,
-                    content=ft.Row(
-                        spacing=8,
-                        controls=[
-                            ft.Icon(
-                                ft.Icons.INSERT_PHOTO_OUTLINED,
-                                size=15,
-                                color=AppColors.MUTED_2,
-                            ),
-                            ft.Text(
-                                "Current session",
-                                size=9,
-                                weight=ft.FontWeight.BOLD,
-                                color=AppColors.MUTED_2,
-                            ),
-                            ft.Container(expand=True),
-                            self.session_name_text,
-                        ],
-                    ),
+                    width=30,
+                    height=3,
+                    border_radius=3,
+                    bgcolor=AppColors.PINK,
+                    opacity=0.8,
                 ),
             ],
         )
 
-        # Keep the existing right-side Signal Workspace visual.
-        right = self._build_signal_console()
+        center_content = ft.Column(
+            spacing=14,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[
+                ft.Row(
+                    alignment=ft.MainAxisAlignment.CENTER,
+                    spacing=8,
+                    controls=[
+                        ready_badge,
+                        eyebrow,
+                    ],
+                ),
 
+                ft.Text(
+                    "Image Signal Processor & Editor",
+                    size=40,
+                    weight=ft.FontWeight.BOLD,
+                    color=AppColors.TEXT,
+                    text_align=ft.TextAlign.CENTER,
+                    height=1.05,
+                ),
+
+                accent_line,
+
+                ft.Container(
+                    width=690,
+                    content=ft.Text(
+                        "A focused visual laboratory for spatial filtering, Fourier analysis, "
+                        "compression, texture inspection, hybrid imaging and color-space exploration.",
+                        size=12,
+                        color=AppColors.MUTED,
+                        text_align=ft.TextAlign.CENTER,
+                        height=1.55,
+                    ),
+                ),
+
+                ft.Row(
+                    alignment=ft.MainAxisAlignment.CENTER,
+                    spacing=10,
+                    controls=[
+                        start_button,
+                        browse_button,
+                    ],
+                ),
+
+                session_strip,
+
+                ft.Container(height=4),
+
+                # Centered live signal workspace.
+                self._build_signal_console(),
+            ],
+        )
+
+        # Subtle animated ambient light for depth.
+        self.hero_glow_left = ft.Container(
+            left=40,
+            top=40,
+            width=120,
+            height=120,
+            border_radius=60,
+            bgcolor="#101B3155",
+            blur=35,
+            opacity=0.55,
+            scale=1.0,
+            animate_scale=ft.Animation(
+                duration=900,
+                curve=ft.AnimationCurve.EASE_IN_OUT,
+            ),
+            animate_opacity=ft.Animation(
+                duration=900,
+                curve=ft.AnimationCurve.EASE_IN_OUT,
+            ),
+        )
+
+        self.hero_glow_right = ft.Container(
+            right=55,
+            bottom=35,
+            width=150,
+            height=150,
+            border_radius=75,
+            bgcolor="#25143555",
+            blur=42,
+            opacity=0.50,
+            scale=1.0,
+            animate_scale=ft.Animation(
+                duration=1100,
+                curve=ft.AnimationCurve.EASE_IN_OUT,
+            ),
+            animate_opacity=ft.Animation(
+                duration=1100,
+                curve=ft.AnimationCurve.EASE_IN_OUT,
+            ),
+        )
+
+        hero_background = ft.Stack(
+            expand=True,
+            controls=[
+                self.hero_glow_left,
+                self.hero_glow_right,
+                ft.Container(
+                    left=0,
+                    right=0,
+                    top=0,
+                    bottom=0,
+                    alignment=ft.Alignment.CENTER,
+                    padding=ft.Padding.symmetric(
+                        horizontal=28,
+                        vertical=26,
+                    ),
+                    content=center_content,
+                ),
+            ],
+        )
+
+        # Galaxy image is used only behind the top Hero card.
+        # Everything interactive remains layered above it.
         return ft.Container(
-            height=350,
-            padding=ft.Padding.symmetric(horizontal=30, vertical=26),
-            border_radius=ft.BorderRadius.all(24),
-            border=ft.Border.all(1, AppColors.BORDER),
-            gradient=ft.LinearGradient(
-                begin=ft.Alignment.TOP_LEFT,
-                end=ft.Alignment.BOTTOM_RIGHT,
-                colors=["#0D1728", "#0C1220", "#181126"],
+            height=650,
+            border_radius=ft.BorderRadius.all(26),
+            border=ft.Border.all(
+                1,
+                "#304465",
             ),
             shadow=ft.BoxShadow(
-                blur_radius=32,
+                blur_radius=38,
                 spread_radius=0,
-                color="#26000000",
-                offset=ft.Offset(0, 12),
+                color="#36000000",
+                offset=ft.Offset(0, 14),
             ),
-            content=ft.Row(
-                spacing=26,
-                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                controls=[left, right],
+            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+            content=ft.Stack(
+                expand=True,
+                controls=[
+                    # =================================================
+                    # 1. GALAXY BACKGROUND IMAGE
+                    # =================================================
+                    ft.Image(
+                        src=HERO_BACKGROUND_IMAGE,
+                        left=0,
+                        right=0,
+                        top=0,
+                        bottom=0,
+                        fit=ft.BoxFit.COVER,
+                    ),
+
+                    # =================================================
+                    # 2. DARK GLASS OVERLAY
+                    #
+                    # Keeps text and controls readable without hiding
+                    # the galaxy.
+                    # =================================================
+                    ft.Container(
+                        left=0,
+                        right=0,
+                        top=0,
+                        bottom=0,
+                        gradient=ft.LinearGradient(
+                            begin=ft.Alignment.TOP_CENTER,
+                            end=ft.Alignment.BOTTOM_CENTER,
+                            colors=[
+                                "#B8060B13",
+                                "#92080F1B",
+                                "#B60A0D19",
+                            ],
+                        ),
+                    ),
+
+                    # =================================================
+                    # 3. SOFT VIGNETTE
+                    #
+                    # Darkens the outside edges and keeps attention in
+                    # the middle of the Hero.
+                    # =================================================
+                    ft.Container(
+                        left=0,
+                        right=0,
+                        top=0,
+                        bottom=0,
+                        gradient=ft.RadialGradient(
+                            center=ft.Alignment.CENTER,
+                            radius=1.05,
+                            colors=[
+                                "#08000000",
+                                "#28070B13",
+                                "#78050A12",
+                            ],
+                        ),
+                    ),
+
+                    # =================================================
+                    # 4. EXISTING ANIMATED HERO CONTENT
+                    #
+                    # This keeps all your existing animation:
+                    # - flowing waveform
+                    # - scanner
+                    # - particles
+                    # - LIVE pulse
+                    # - interactive Signal Workspace
+                    # - animated ambient glows
+                    # =================================================
+                    ft.Container(
+                        left=0,
+                        right=0,
+                        top=0,
+                        bottom=0,
+                        content=hero_background,
+                    ),
+                ],
             ),
         )
 
@@ -246,7 +519,7 @@ class HomeView:
                 color="#6634D399",
             ),
             animate_scale=ft.Animation(
-                duration=360,
+                duration=180,
                 curve=ft.AnimationCurve.EASE_IN_OUT,
             ),
         )
@@ -303,7 +576,7 @@ class HomeView:
 
         for index, height in enumerate(initial_heights):
             bar = ft.Container(
-                width=8,
+                width=10,
                 height=height,
                 border_radius=6,
                 gradient=ft.LinearGradient(
@@ -319,11 +592,11 @@ class HomeView:
                     color=f"33{bar_colors[index][1:]}",
                 ),
                 animate_size=ft.Animation(
-                    duration=300,
+                    duration=115,
                     curve=ft.AnimationCurve.EASE_IN_OUT,
                 ),
                 animate_opacity=ft.Animation(
-                    duration=300,
+                    duration=115,
                     curve=ft.AnimationCurve.EASE_IN_OUT,
                 ),
             )
@@ -332,7 +605,7 @@ class HomeView:
         waveform_row = ft.Row(
             alignment=ft.MainAxisAlignment.CENTER,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            spacing=7,
+            spacing=12,
             controls=self._signal_bars,
         )
 
@@ -360,7 +633,7 @@ class HomeView:
                 color="#6622D3EE",
             ),
             animate_position=ft.Animation(
-                duration=300,
+                duration=105,
                 curve=ft.AnimationCurve.LINEAR,
             ),
         )
@@ -371,6 +644,42 @@ class HomeView:
             weight=ft.FontWeight.BOLD,
             color=AppColors.CYAN_LIGHT,
         )
+
+        # Tiny moving particles make the signal display feel continuous,
+        # while remaining visually subtle.
+        self._signal_particles = []
+
+        particle_colors = [
+            AppColors.CYAN,
+            AppColors.PURPLE,
+            AppColors.PINK,
+            AppColors.CYAN,
+        ]
+
+        for index, particle_color in enumerate(particle_colors):
+            particle = ft.Container(
+                left=22 + index * 105,
+                top=18 + index * 22,
+                width=5 if index % 2 == 0 else 4,
+                height=5 if index % 2 == 0 else 4,
+                border_radius=100,
+                bgcolor=particle_color,
+                opacity=0.45,
+                shadow=ft.BoxShadow(
+                    blur_radius=8,
+                    color=f"55{particle_color[1:]}",
+                ),
+                animate_position=ft.Animation(
+                    duration=120,
+                    curve=ft.AnimationCurve.LINEAR,
+                ),
+                animate_opacity=ft.Animation(
+                    duration=120,
+                    curve=ft.AnimationCurve.EASE_IN_OUT,
+                ),
+            )
+
+            self._signal_particles.append(particle)
 
         signal_grid = ft.Container(
             expand=True,
@@ -401,6 +710,9 @@ class HomeView:
                         height=1,
                         bgcolor="#192A405F",
                     ),
+
+                    # Floating signal-energy particles.
+                    *self._signal_particles,
 
                     # Main waveform.
                     ft.Container(
@@ -445,8 +757,8 @@ class HomeView:
         # -----------------------------------------------------
 
         self.signal_console = ft.Container(
-            width=330,
-            height=260,
+            width=660,
+            height=280,
             padding=20,
             border_radius=ft.BorderRadius.all(22),
             border=ft.Border.all(1, "#34435F"),
@@ -462,8 +774,13 @@ class HomeView:
             ),
             ink=True,
             on_click=lambda e: self._navigate(1),
+            offset=ft.Offset(0, 0),
+            animate_offset=ft.Animation(
+                duration=190,
+                curve=ft.AnimationCurve.EASE_OUT,
+            ),
             animate_scale=ft.Animation(
-                duration=AppAnimations.NORMAL,
+                duration=190,
                 curve=ft.AnimationCurve.EASE_OUT,
             ),
             on_hover=self._hover_signal_console,
@@ -690,7 +1007,7 @@ class HomeView:
             height=outer_rotor_size,
             rotate=0.0,
             animate_rotation=ft.Animation(
-                duration=360,
+                duration=120,
                 curve=ft.AnimationCurve.LINEAR,
             ),
             controls=[
@@ -750,7 +1067,7 @@ class HomeView:
             height=inner_rotor_size,
             rotate=0.0,
             animate_rotation=ft.Animation(
-                duration=360,
+                duration=120,
                 curve=ft.AnimationCurve.LINEAR,
             ),
             controls=[
@@ -968,16 +1285,102 @@ class HomeView:
             ],
         )
 
+        # -----------------------------------------------------
+        # ROUND CONSOLE BACKGROUND
+        #
+        # Layer order:
+        # 1. galaxy image
+        # 2. dark overlay
+        # 3. radial vignette
+        # 4. animated orbit interface
+        # -----------------------------------------------------
+
         return ft.Container(
             height=520,
             alignment=ft.Alignment.CENTER,
-            bgcolor="#070C15",
-            border=ft.Border.all(1, AppColors.BORDER_SOFT),
+            border=ft.Border.all(
+                1,
+                AppColors.BORDER_SOFT,
+            ),
             border_radius=ft.BorderRadius.all(19),
-            content=ft.Row(
-                alignment=ft.MainAxisAlignment.CENTER,
-                scroll=ft.ScrollMode.AUTO,
-                controls=[self.orbit_stack],
+            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+            content=ft.Stack(
+                expand=True,
+                controls=[
+                    # =================================================
+                    # 1. GALAXY BACKGROUND
+                    # =================================================
+                    ft.Image(
+                        src=LAB_BACKGROUND_IMAGE,
+                        left=0,
+                        right=0,
+                        top=0,
+                        bottom=0,
+                        fit=ft.BoxFit.COVER,
+                    ),
+
+                    # =================================================
+                    # 2. DARK GLASS OVERLAY
+                    #
+                    # Slightly darker than the Hero because the orbit
+                    # rings and labels need strong contrast.
+                    # =================================================
+                    ft.Container(
+                        left=0,
+                        right=0,
+                        top=0,
+                        bottom=0,
+                        gradient=ft.LinearGradient(
+                            begin=ft.Alignment.TOP_CENTER,
+                            end=ft.Alignment.BOTTOM_CENTER,
+                            colors=[
+                                "#B8070C16",
+                                "#A6080D18",
+                                "#C4070B14",
+                            ],
+                        ),
+                    ),
+
+                    # =================================================
+                    # 3. RADIAL VIGNETTE
+                    #
+                    # Keeps the center glowing and the edges darker,
+                    # making the circular interface stand out.
+                    # =================================================
+                    ft.Container(
+                        left=0,
+                        right=0,
+                        top=0,
+                        bottom=0,
+                        gradient=ft.RadialGradient(
+                            center=ft.Alignment.CENTER,
+                            radius=1.0,
+                            colors=[
+                                "#08000000",
+                                "#2508111F",
+                                "#7C040810",
+                            ],
+                        ),
+                    ),
+
+                    # =================================================
+                    # 4. ORBITAL DSP INTERFACE
+                    # =================================================
+                    ft.Container(
+                        left=0,
+                        right=0,
+                        top=0,
+                        bottom=0,
+                        alignment=ft.Alignment.CENTER,
+                        content=ft.Row(
+                            alignment=ft.MainAxisAlignment.CENTER,
+                            scroll=ft.ScrollMode.AUTO,
+                            controls=[
+                                self.orbit_stack,
+                            ],
+                        ),
+                    ),
+                ],
             ),
         )
 
@@ -1041,7 +1444,7 @@ class HomeView:
 
             # Smooth movement around the orbit.
             animate_position=ft.Animation(
-                duration=360,
+                duration=120,
                 curve=ft.AnimationCurve.LINEAR,
             ),
             data={
@@ -1252,7 +1655,7 @@ class HomeView:
                 if not self._orbit_paused:
                     # About one full revolution every ~25 seconds.
                     self._orbit_phase = (
-                        self._orbit_phase + 5.0
+                        self._orbit_phase + 1.15
                     ) % 360.0
 
                     for item in self._orbit_nodes:
@@ -1313,9 +1716,32 @@ class HomeView:
                     # HERO SIGNAL WORKSPACE FLOW
                     # ---------------------------------------------
 
+                    # Faster, smaller steps make the motion feel continuous.
+                    phase_speed = (
+                        8.0
+                        if self._signal_hovered
+                        else 5.2
+                    )
+
+                    scan_speed = (
+                        2.8
+                        if self._signal_hovered
+                        else 1.75
+                    )
+
+                    amplitude_boost = (
+                        1.15
+                        if self._signal_hovered
+                        else 1.0
+                    )
+
                     self._signal_phase = (
-                        self._signal_phase + 18.0
+                        self._signal_phase + phase_speed
                     ) % 360.0
+
+                    self._signal_scan_phase = (
+                        self._signal_scan_phase + scan_speed
+                    ) % 100.0
 
                     if self._signal_bars:
                         for index, bar in enumerate(
@@ -1323,56 +1749,139 @@ class HomeView:
                         ):
                             phase = math.radians(
                                 self._signal_phase
-                                + index * 24
+                                + index * 22
                             )
 
-                            # Layer two sine waves so the movement feels
-                            # less mechanical and more like a live signal.
+                            # Three harmonics create a more organic wave.
                             wave = (
-                                0.70 * math.sin(phase)
-                                + 0.30 * math.sin(
-                                    phase * 2.15 + 0.8
+                                0.58 * math.sin(phase)
+                                + 0.27 * math.sin(
+                                    phase * 1.85 + 0.65
+                                )
+                                + 0.15 * math.sin(
+                                    phase * 3.2 + index * 0.11
                                 )
                             )
 
-                            normalized = (wave + 1.0) / 2.0
+                            normalized = max(
+                                0.0,
+                                min(
+                                    1.0,
+                                    (wave + 1.0) / 2.0,
+                                ),
+                            )
 
                             bar.height = (
-                                24
-                                + normalized * 76
+                                22
+                                + normalized
+                                * 78
+                                * amplitude_boost
                             )
 
                             bar.opacity = (
-                                0.58
-                                + normalized * 0.42
+                                0.52
+                                + normalized * 0.48
                             )
 
+                    # One-way scanner rather than a back-and-forth sweep.
                     if self.signal_scan_line is not None:
-                        scan_progress = (
+                        self.signal_scan_line.left = (
+                            8
+                            + (
+                                self._signal_scan_phase
+                                / 100.0
+                            )
+                            * 585
+                        )
+
+                    # Moving energy particles.
+                    for index, particle in enumerate(
+                        self._signal_particles
+                    ):
+                        progress = (
+                            (
+                                self._signal_scan_phase
+                                + index * 22
+                            )
+                            % 100.0
+                        ) / 100.0
+
+                        particle.left = (
+                            14 + progress * 575
+                        )
+
+                        particle.top = (
+                            18
+                            + 34
+                            * (
+                                0.5
+                                + 0.5
+                                * math.sin(
+                                    math.radians(
+                                        self._signal_phase
+                                        + index * 70
+                                    )
+                                )
+                            )
+                        )
+
+                        particle.opacity = (
+                            0.25
+                            + 0.55
+                            * (
+                                0.5
+                                + 0.5
+                                * math.sin(
+                                    math.radians(
+                                        self._signal_phase * 1.4
+                                        + index * 80
+                                    )
+                                )
+                            )
+                        )
+
+                    # Smooth LIVE pulse.
+                    if self.signal_live_dot is not None:
+                        live_wave = (
                             0.5
                             + 0.5
                             * math.sin(
                                 math.radians(
-                                    self._signal_phase * 0.75
+                                    self._signal_phase * 2.0
                                 )
                             )
                         )
 
-                        # The waveform panel is approximately 288 px wide.
-                        self.signal_scan_line.left = (
-                            8
-                            + scan_progress * 260
+                        self.signal_live_dot.scale = (
+                            0.86 + live_wave * 0.52
                         )
 
-                    if self.signal_live_dot is not None:
-                        self.signal_live_dot.scale = (
-                            1.35
-                            if math.sin(
-                                math.radians(
-                                    self._signal_phase
-                                )
-                            ) > 0
-                            else 0.82
+                    # Slow ambient hero light movement.
+                    ambient_wave = (
+                        0.5
+                        + 0.5
+                        * math.sin(
+                            math.radians(
+                                self._signal_phase * 0.7
+                            )
+                        )
+                    )
+
+                    if self.hero_glow_left is not None:
+                        self.hero_glow_left.scale = (
+                            0.96 + ambient_wave * 0.12
+                        )
+                        self.hero_glow_left.opacity = (
+                            0.35 + ambient_wave * 0.30
+                        )
+
+                    if self.hero_glow_right is not None:
+                        inverse_wave = 1.0 - ambient_wave
+                        self.hero_glow_right.scale = (
+                            0.96 + inverse_wave * 0.13
+                        )
+                        self.hero_glow_right.opacity = (
+                            0.34 + inverse_wave * 0.30
                         )
 
                     if self.orbit_stack is not None:
@@ -1381,7 +1890,15 @@ class HomeView:
                     if self.signal_console is not None:
                         self.signal_console.update()
 
-                await asyncio.sleep(0.35)
+                    if self.hero_glow_left is not None:
+                        self.hero_glow_left.update()
+
+                    if self.hero_glow_right is not None:
+                        self.hero_glow_right.update()
+
+                # ~12.5 updates per second. The implicit animations interpolate
+                # between updates, producing smooth motion without excessive UI load.
+                await asyncio.sleep(0.08)
 
             except Exception:
                 # The Home page can be temporarily detached while the user
@@ -1393,36 +1910,47 @@ class HomeView:
 
     def _hover_signal_console(self, e):
         hovered = self._is_hovered(e.data)
+        self._signal_hovered = hovered
 
         if hovered:
-            e.control.scale = 1.025
+            # Lift the console very slightly and make the live signal more
+            # energetic. The animation loop also increases wave/scan speed.
+            e.control.scale = 1.018
+            e.control.offset = ft.Offset(0, -0.012)
+
             e.control.border = ft.Border.all(
                 1.5,
                 AppColors.CYAN,
             )
+
             e.control.shadow = ft.BoxShadow(
-                blur_radius=30,
+                blur_radius=34,
                 spread_radius=1,
-                color="#4422D3EE",
+                color="#4822D3EE",
+                offset=ft.Offset(0, 10),
             )
 
             if self.signal_frequency_text is not None:
                 self.signal_frequency_text.value = (
-                    "CLICK TO OPEN FREQUENCY LAB  →"
+                    "INTERACTIVE SIGNAL • CLICK TO OPEN FREQUENCY LAB  →"
                 )
                 self.signal_frequency_text.color = (
                     AppColors.WHITE
                 )
         else:
             e.control.scale = 1.0
+            e.control.offset = ft.Offset(0, 0)
+
             e.control.border = ft.Border.all(
                 1,
                 "#34435F",
             )
+
             e.control.shadow = ft.BoxShadow(
                 blur_radius=20,
                 spread_radius=0,
                 color="#22000000",
+                offset=ft.Offset(0, 0),
             )
 
             if self.signal_frequency_text is not None:
