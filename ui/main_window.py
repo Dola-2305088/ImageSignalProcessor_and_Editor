@@ -9,13 +9,7 @@ matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
 import numpy as np
-
 from PIL import Image, ImageOps
-
-
-# ============================================================
-# FREQUENCY-DOMAIN ALGORITHMS
-# ============================================================
 
 from algorithms.frequency.dft import (
     manual_dft2,
@@ -24,19 +18,9 @@ from algorithms.frequency.dft import (
     apply_low_pass_filter,
     apply_high_pass_filter,
 )
-
-from algorithms.frequency.compression import (
-    compress_dft,
-)
-
-from algorithms.frequency.texture import (
-    analyze_texture,
-)
-
-from algorithms.frequency.hybrid import (
-    create_hybrid_image,
-)
-
+from algorithms.frequency.compression import compress_dft
+from algorithms.frequency.texture import analyze_texture
+from algorithms.frequency.hybrid import create_hybrid_image
 from algorithms.frequency.color_analysis import (
     split_rgb_channels,
     create_colored_channel,
@@ -44,4007 +28,1109 @@ from algorithms.frequency.color_analysis import (
     calculate_channel_spectrum,
     get_channel_statistics,
 )
+from utils.metrics import calculate_psnr
 
-from utils.metrics import (
-    calculate_psnr,
-)
+from ui.theme import AppColors, configure_page
+from ui.components.top_bar import TopBar
+from ui.components.sidebar import Sidebar
+from ui.components.image_card import ImageCard
+from ui.components.status_bar import StatusBar
+from ui.components.loading_overlay import LoadingOverlay
 
+from ui.views.home_view import HomeView
+from ui.views.frequency_view import FrequencyView
+from ui.views.compression_view import CompressionView
+from ui.views.texture_view import TextureView
+from ui.views.hybrid_view import HybridView
+from ui.views.color_view import ColorView
 
-# ============================================================
-# UI THEME
-# ============================================================
-
-from ui.theme import (
-    AppColors,
-    AppAnimations,
-    configure_page,
-)
-
-
-# ============================================================
-# REUSABLE UI COMPONENTS
-# ============================================================
-
-from ui.components.top_bar import (
-    TopBar,
-)
-
-from ui.components.sidebar import (
-    Sidebar,
-)
-
-from ui.components.image_card import (
-    ImageCard,
-)
-
-from ui.components.status_bar import (
-    StatusBar,
-)
-
-from ui.components.loading_overlay import (
-    LoadingOverlay,
-)
-
-
-# ============================================================
-# FEATURE VIEWS
-# ============================================================
-
-from ui.views.home_view import (
-    HomeView,
-)
-
-from ui.views.frequency_view import (
-    FrequencyView,
-)
-
-from ui.views.compression_view import (
-    CompressionView,
-)
-
-from ui.views.texture_view import (
-    TextureView,
-)
-
-from ui.views.hybrid_view import (
-    HybridView,
-)
-
-from ui.views.color_view import (
-    ColorView,
-)
-
-
-# ============================================================
-# MAIN APPLICATION CONTROLLER
-# ============================================================
 
 class ImageProcessorApp:
+    """Main UI controller. DSP stays inside algorithms/."""
 
-    """
-    Main controller for the Image Signal Processor.
-
-    Responsibilities:
-
-    1. Store global application state.
-    2. Connect UI components.
-    3. Connect feature views.
-    4. Handle navigation.
-    5. Open and save images.
-    6. Call DSP algorithms.
-    7. Send results back to the UI.
-
-    Signal-processing algorithms themselves remain
-    inside algorithms/.
-    """
-
-    def __init__(
-        self,
-        page: ft.Page,
-    ):
-
+    def __init__(self, page: ft.Page):
         self.page = page
 
-
-        # =====================================================
-        # IMAGE STATE
-        # =====================================================
-
+        # Image state
         self.original_image = None
-
         self.processed_image = None
-
         self.processed_bytes = None
-
         self.current_image_name = None
 
-
-        # =====================================================
-        # DFT STATE
-        # =====================================================
-
+        # Frequency state
         self.current_dft = None
-
         self.current_dft_source = None
-
         self.current_compressed_dft = None
 
-
-        # =====================================================
-        # TEXTURE STATE
-        # =====================================================
-
+        # Texture state
         self.texture_results = {}
 
-
-        # =====================================================
-        # HYBRID IMAGE STATE
-        # =====================================================
-
+        # Hybrid state
         self.hybrid_low_image = None
-
         self.hybrid_high_image = None
-
         self.hybrid_low_name = None
-
         self.hybrid_high_name = None
-
         self.hybrid_low_preview_bytes = None
-
         self.hybrid_high_preview_bytes = None
 
-
-        # =====================================================
-        # CURRENT FEATURE
-        # =====================================================
-
+        # Navigation state
         self.current_feature_index = 0
 
-
-        # =====================================================
-        # PAGE
-        # =====================================================
-
-        configure_page(
-            self.page
-        )
-
-
-        # =====================================================
-        # BUILD APP
-        # =====================================================
-
+        configure_page(self.page)
         self._build_ui()
 
-
     # =========================================================
-    # BUILD COMPLETE UI
+    # UI BUILD
     # =========================================================
 
-    def _build_ui(
-        self,
-    ):
-
-        # =====================================================
-        # STATUS BAR
-        # =====================================================
-
+    def _build_ui(self):
         self.status_bar = StatusBar()
-
-
-        # =====================================================
-        # LOADING OVERLAY
-        # =====================================================
-
-        self.loading_overlay = (
-            LoadingOverlay()
-        )
-
-
-        # =====================================================
-        # SIDEBAR
-        # =====================================================
+        self.loading_overlay = LoadingOverlay()
 
         self.sidebar = Sidebar(
-
-            on_navigation_change=(
-                self._on_sidebar_navigation
-            )
+            on_navigation_change=self._on_sidebar_navigation,
         )
-
-
-        # =====================================================
-        # TOP BAR
-        # =====================================================
 
         self.top_bar = TopBar(
-
-            on_toggle_sidebar=(
-                self._toggle_sidebar
-            ),
-
-            on_open_image=(
-                self.open_image
-            ),
-
-            on_save_result=(
-                self.save_processed
-            ),
-
-            on_reset_result=(
-                self.reset_processed
-            ),
+            on_toggle_sidebar=self._toggle_sidebar,
+            on_open_image=self.open_image,
+            on_save_result=self.save_processed,
+            on_reset_result=self.reset_processed,
         )
-
-
-        # =====================================================
-        # ORIGINAL IMAGE CARD
-        # =====================================================
 
         self.original_card = ImageCard(
-
             title="Original Image",
-
             subtitle="No image selected",
-
             accent=AppColors.BLUE,
-
-            placeholder_icon=(
-                ft.Icons.IMAGE_OUTLINED
-            ),
-
-            placeholder_title=(
-                "Open an image to begin"
-            ),
-
-            placeholder_subtitle=(
-                "JPG • PNG • BMP • TIFF • WebP"
-            ),
+            placeholder_icon=ft.Icons.IMAGE_OUTLINED,
+            placeholder_title="Open an image to begin",
+            placeholder_subtitle="JPG • PNG • BMP • TIFF • WebP",
         )
-
-
-        # =====================================================
-        # PROCESSED IMAGE CARD
-        # =====================================================
 
         self.processed_card = ImageCard(
-
             title="Processed Result",
-
             subtitle="Live preview",
-
             accent=AppColors.PURPLE,
-
-            placeholder_icon=(
-                ft.Icons.AUTO_FIX_HIGH_OUTLINED
-            ),
-
-            placeholder_title=(
-                "Processed output appears here"
-            ),
-
-            placeholder_subtitle=(
-                "Choose a feature from the sidebar"
-            ),
+            placeholder_icon=ft.Icons.AUTO_FIX_HIGH_OUTLINED,
+            placeholder_title="Processed output appears here",
+            placeholder_subtitle="Choose a feature from the sidebar",
         )
 
-
-        # =====================================================
-        # IMAGE WORKSPACE
-        # =====================================================
-
-        image_workspace = ft.ResponsiveRow(
-
+        self.image_workspace = ft.ResponsiveRow(
             spacing=16,
-
             run_spacing=16,
-
             controls=[
-
-                # Original
-
                 ft.Container(
-
-                    col={
-                        "xs": 12,
-                        "md": 6,
-                    },
-
-                    content=(
-                        self.original_card.control
-                    ),
+                    col={"xs": 12, "md": 6},
+                    content=self.original_card.control,
                 ),
-
-
-                # Processed
-
                 ft.Container(
-
-                    col={
-                        "xs": 12,
-                        "md": 6,
-                    },
-
-                    content=(
-                        self.processed_card.control
-                    ),
+                    col={"xs": 12, "md": 6},
+                    content=self.processed_card.control,
                 ),
             ],
         )
 
-
-        # =====================================================
-        # HOME VIEW
-        # =====================================================
+        # -----------------------------
+        # Views
+        # -----------------------------
 
         self.home_view = HomeView(
-
-            on_open_image=(
-                self.open_image
-            ),
-
-            on_grayscale=(
-                self.convert_to_grayscale
-            ),
-
-            on_navigate=(
-                self._navigate_to
-            ),
+            on_start_session=self.start_new_session,
+            on_open_image=self.open_image,
+            on_navigate=self._navigate_to,
         )
-
-
-        # =====================================================
-        # FEATURE 4
-        # =====================================================
 
         self.frequency_view = FrequencyView(
-
-            on_show_spectrum=(
-                self.show_frequency_spectrum
-            ),
-
-            on_reconstruct=(
-                self.reconstruct_dft
-            ),
-
-            on_low_pass=(
-                self.apply_low_pass
-            ),
-
-            on_high_pass=(
-                self.apply_high_pass
-            ),
+            on_show_spectrum=self.show_frequency_spectrum,
+            on_reconstruct=self.reconstruct_dft,
+            on_low_pass=self.apply_low_pass,
+            on_high_pass=self.apply_high_pass,
         )
-
-
-        # =====================================================
-        # FEATURE 5
-        # =====================================================
 
         self.compression_view = CompressionView(
-
-            on_apply_compression=(
-                self.apply_dft_compression
-            ),
-
-            on_quality_curve=(
-                self.plot_compression_quality
-            ),
+            on_apply_compression=self.apply_dft_compression,
+            on_quality_curve=self.plot_compression_quality,
         )
-
-
-        # =====================================================
-        # FEATURE 8
-        # =====================================================
 
         self.texture_view = TextureView(
-
-            on_analyze=(
-                self.analyze_current_texture
-            ),
-
-            on_show_comparisons=(
-                self.show_texture_comparison
-            ),
+            on_analyze=self.analyze_current_texture,
+            on_show_comparisons=self.show_texture_comparison,
         )
-
-
-        # =====================================================
-        # FEATURE 9
-        # =====================================================
 
         self.hybrid_view = HybridView(
-
-            on_select_low=(
-                self.select_hybrid_low_image
-            ),
-
-            on_select_high=(
-                self.select_hybrid_high_image
-            ),
-
-            on_create_hybrid=(
-                self.generate_hybrid_image
-            ),
+            on_select_low=self.select_hybrid_low_image,
+            on_select_high=self.select_hybrid_high_image,
+            on_create_hybrid=self.generate_hybrid_image,
         )
-
-
-        # =====================================================
-        # FEATURE 12
-        # =====================================================
 
         self.color_view = ColorView(
-
-            on_red_channel=(
-                lambda e:
-                self.show_rgb_channel("R")
-            ),
-
-            on_green_channel=(
-                lambda e:
-                self.show_rgb_channel("G")
-            ),
-
-            on_blue_channel=(
-                lambda e:
-                self.show_rgb_channel("B")
-            ),
-
-            on_histograms=(
-                self.show_rgb_histograms
-            ),
-
-            on_frequencies=(
-                self.show_rgb_frequency_spectra
-            ),
-
-            on_ycbcr=(
-                self.show_ycbcr_channels
-            ),
+            on_red_channel=lambda e: self.show_rgb_channel("R"),
+            on_green_channel=lambda e: self.show_rgb_channel("G"),
+            on_blue_channel=lambda e: self.show_rgb_channel("B"),
+            on_histograms=self.show_rgb_histograms,
+            on_frequencies=self.show_rgb_frequency_spectra,
+            on_ycbcr=self.show_ycbcr_channels,
         )
 
-
-        # =====================================================
-        # ALL FEATURE VIEWS
-        # =====================================================
-
         self.feature_views = [
-
             self.home_view.control,
-
             self.frequency_view.control,
-
             self.compression_view.control,
-
             self.texture_view.control,
-
             self.hybrid_view.control,
-
             self.color_view.control,
         ]
 
-
-        # =====================================================
-        # FEATURE SWITCHER
-        # =====================================================
-
-        self.feature_switcher = ft.AnimatedSwitcher(
-
-            content=(
-                self.feature_views[0]
-            ),
-
-            transition=(
-                ft.AnimatedSwitcherTransition.FADE
-            ),
-
-            duration=(
-                AppAnimations.NORMAL
-            ),
-
-            reverse_duration=(
-                AppAnimations.FAST
-            ),
-
-            switch_in_curve=(
-                ft.AnimationCurve.EASE_OUT
-            ),
-
-            switch_out_curve=(
-                ft.AnimationCurve.EASE_IN
-            ),
-        )
-
-
-        # =====================================================
-        # MAIN SCROLLING WORKSPACE
-        # =====================================================
-
-        self.main_scroller = ft.Column(
-
+        # Dedicated landing page: image cards are NOT shown on Home.
+        self.page_content = ft.Column(
             expand=True,
-
             scroll=ft.ScrollMode.AUTO,
-
             spacing=18,
-
             controls=[
-
-                image_workspace,
-
-                self.feature_switcher,
-
-                ft.Container(
-                    height=10
-                ),
+                self.home_view.control,
+                ft.Container(height=10),
             ],
         )
 
-
-        # =====================================================
-        # SIDEBAR + MAIN WORKSPACE
-        # =====================================================
-
-        content = ft.Row(
-
+        body = ft.Row(
             expand=True,
-
             spacing=0,
-
             controls=[
-
                 self.sidebar.control,
-
-
                 ft.Container(
-
                     expand=True,
-
-                    padding=ft.Padding.all(
-                        20
-                    ),
-
-                    content=(
-                        self.main_scroller
-                    ),
+                    padding=ft.Padding.all(20),
+                    content=self.page_content,
                 ),
             ],
         )
-
-
-        # =====================================================
-        # NORMAL APPLICATION LAYER
-        # =====================================================
 
         app_shell = ft.Column(
-
             expand=True,
-
             spacing=0,
-
             controls=[
-
                 self.top_bar.control,
-
-                content,
-
+                body,
                 self.status_bar.control,
             ],
         )
 
-
-        # =====================================================
-        # STACK
-        #
-        # Layer 1 → Application
-        # Layer 2 → Processing overlay
-        # =====================================================
-
         self.root = ft.Stack(
-
             expand=True,
-
             controls=[
-
                 app_shell,
-
                 self.loading_overlay.control,
             ],
         )
 
-
-        # =====================================================
-        # ADD TO PAGE
-        # =====================================================
-
-        self.page.add(
-            self.root
-        )
-
-
-        # =====================================================
-        # START HOME AMBIENT ANIMATION
-        # =====================================================
-
-        self.page.run_task(
-
-            self.home_view
-            .start_ambient_animation
-        )
-
+        self.page.add(self.root)
 
     # =========================================================
     # NAVIGATION
     # =========================================================
 
-    def _toggle_sidebar(
-        self,
-        e,
-    ):
-
+    def _toggle_sidebar(self, e):
         self.sidebar.toggle()
 
+    def _on_sidebar_navigation(self, index):
+        self._show_feature(index)
 
-    def _on_sidebar_navigation(
-        self,
-        index,
-    ):
+    def _navigate_to(self, index):
+        self.sidebar.set_selected_index(index)
+        self._show_feature(index)
 
-        self._show_feature(
-            index
-        )
-
-
-    def _navigate_to(
-        self,
-        index,
-    ):
-
-        # Used by HomeView quick actions.
-
-        self.sidebar.set_selected_index(
-            index
-        )
-
-        self._show_feature(
-            index
-        )
-
-
-    def _show_feature(
-        self,
-        index,
-    ):
-
-        # =====================================================
-        # SAFETY
-        # =====================================================
-
-        if (
-            index < 0
-            or
-            index >= len(
-                self.feature_views
-            )
-        ):
-
+    def _show_feature(self, index):
+        if index < 0 or index >= len(self.feature_views):
             index = 0
 
+        self.current_feature_index = index
+        feature_name = self.sidebar.get_feature_name(index)
 
-        previous_index = (
-            self.current_feature_index
-        )
+        if index == 0:
+            # True app-style landing page: no editor image cards.
+            self.page_content.controls = [
+                self.home_view.control,
+                ft.Container(height=10),
+            ]
+        else:
+            # Processing workspaces show before/after image cards.
+            self.page_content.controls = [
+                self.image_workspace,
+                self.feature_views[index],
+                ft.Container(height=10),
+            ]
 
-
-        self.current_feature_index = (
-            index
-        )
-
-
-        # =====================================================
-        # STOP HOME ANIMATION WHEN LEAVING
-        # =====================================================
-
-        if (
-            previous_index == 0
-            and
-            index != 0
-        ):
-
-            self.home_view.stop_ambient_animation()
-
-
-        # =====================================================
-        # CHANGE VIEW
-        # =====================================================
-
-        self.feature_switcher.content = (
-            self.feature_views[index]
-        )
-
-
-        # =====================================================
-        # FEATURE NAME
-        # =====================================================
-
-        feature_name = (
-            self.sidebar
-            .get_feature_name(
-                index
-            )
-        )
-
-
-        # =====================================================
-        # TOP BAR
-        # =====================================================
-
-        self.top_bar.set_active_feature(
-            feature_name
-        )
-
-
-        # =====================================================
-        # UPDATE VIEW
-        # =====================================================
-
-        self.feature_switcher.update()
-
-
-        # =====================================================
-        # RESTART HOME ANIMATION
-        # =====================================================
-
-        if (
-            index == 0
-            and
-            previous_index != 0
-        ):
-
-            self.page.run_task(
-
-                self.home_view
-                .start_ambient_animation
-            )
-
-
-        # =====================================================
-        # STATUS
-        # =====================================================
-
-        self._set_status(
-
-            f"{feature_name} workspace"
-        )
-
+        self.page_content.update()
+        self.top_bar.set_active_feature(feature_name)
+        self.top_bar.set_home_mode(index == 0)
+        self._set_status(f"{feature_name} workspace")
 
     # =========================================================
-    # FILE PICKER
+    # FILE / IMAGE HELPERS
     # =========================================================
 
-    async def _pick_pil_image(
-        self,
-        title,
-    ):
-
-        files = await (
-            ft.FilePicker()
-            .pick_files(
-
-                dialog_title=title,
-
-                allow_multiple=False,
-
-                with_data=True,
-
-                file_type=(
-                    ft.FilePickerFileType.CUSTOM
-                ),
-
-                allowed_extensions=[
-
-                    "jpg",
-                    "jpeg",
-                    "png",
-                    "bmp",
-                    "tif",
-                    "tiff",
-                    "webp",
-                ],
-            )
+    async def _pick_pil_image(self, title):
+        files = await ft.FilePicker().pick_files(
+            dialog_title=title,
+            allow_multiple=False,
+            with_data=True,
+            file_type=ft.FilePickerFileType.CUSTOM,
+            allowed_extensions=[
+                "jpg",
+                "jpeg",
+                "png",
+                "bmp",
+                "tif",
+                "tiff",
+                "webp",
+            ],
         )
-
 
         if not files:
-
             return None, None
 
-
         selected = files[0]
-
-
-        # =====================================================
-        # FILE BYTES
-        # =====================================================
-
         raw = selected.bytes
 
-
-        # =====================================================
-        # FALLBACK TO PATH
-        # =====================================================
-
         if raw is None:
-
-            path = getattr(
-                selected,
-                "path",
-                None,
-            )
-
-
+            path = getattr(selected, "path", None)
             if path:
-
-                with open(
-                    path,
-                    "rb",
-                ) as file:
-
+                with open(path, "rb") as file:
                     raw = file.read()
 
-
         if raw is None:
+            raise ValueError("The selected image could not be read.")
 
-            raise ValueError(
-                "The selected image could not be read."
-            )
-
-
-        # =====================================================
-        # PIL IMAGE
-        # =====================================================
-
-        image = Image.open(
-
-            BytesIO(raw)
-
-        ).convert("RGB")
-
-
-        return (
-            image,
-            selected.name,
-        )
-
-
-    # =========================================================
-    # PIL -> PNG BYTES
-    # =========================================================
+        image = Image.open(BytesIO(raw)).convert("RGB")
+        return image, selected.name
 
     @staticmethod
-    def _pil_to_png_bytes(
-        image,
-    ):
-
+    def _pil_to_png_bytes(image):
         buffer = BytesIO()
-
-
-        image.save(
-
-            buffer,
-
-            format="PNG",
-        )
-
-
+        image.save(buffer, format="PNG")
         return buffer.getvalue()
 
-
-    # =========================================================
-    # ORIGINAL PREVIEW
-    # =========================================================
-
-    def _set_original_preview(
-        self,
-        image,
-        name,
-    ):
-
-        image_bytes = (
-            self._pil_to_png_bytes(
-                image
-            )
-        )
-
-
+    def _set_original_preview(self, image, name):
+        image_bytes = self._pil_to_png_bytes(image)
         self.original_card.set_image_bytes(
-
             image_bytes,
-
-            title=(
-                "Original Image"
-            ),
-
+            title="Original Image",
             subtitle=name,
         )
 
-
-    # =========================================================
-    # PROCESSED PIL IMAGE
-    # =========================================================
-
-    def _set_processed_pil(
-        self,
-        image,
-        title,
-        status=None,
-    ):
-
-        self.processed_image = (
-            image.copy()
-        )
-
-
-        self.processed_bytes = (
-            self._pil_to_png_bytes(
-                image
-            )
-        )
-
-
+    def _set_processed_pil(self, image, title, status=None):
+        self.processed_image = image.copy()
+        self.processed_bytes = self._pil_to_png_bytes(image)
         self.processed_card.set_image_bytes(
-
             self.processed_bytes,
-
             title=title,
-
-            subtitle=(
-
-                status
-
-                if status
-
-                else "Processing complete"
-            ),
+            subtitle=status if status else "Processing complete",
         )
-
-
         if status:
+            self._set_status(status)
 
-            self._set_status(
-                status
-            )
-
-
-    # =========================================================
-    # PROCESSED RAW PNG BYTES
-    # =========================================================
-
-    def _set_processed_bytes(
-        self,
-        image_bytes,
-        title,
-        status=None,
-    ):
-
+    def _set_processed_bytes(self, image_bytes, title, status=None):
         self.processed_image = None
-
-
-        self.processed_bytes = (
-            image_bytes
-        )
-
-
+        self.processed_bytes = image_bytes
         self.processed_card.set_image_bytes(
-
             image_bytes,
-
             title=title,
-
-            subtitle=(
-
-                status
-
-                if status
-
-                else "Processing complete"
-            ),
+            subtitle=status if status else "Processing complete",
         )
-
-
         if status:
+            self._set_status(status)
 
-            self._set_status(
-                status
-            )
-
-
-    # =========================================================
-    # REQUIRE IMAGE
-    # =========================================================
-
-    def _require_image(
-        self,
-    ):
-
+    def _require_image(self):
         if self.original_image is None:
-
-            self._toast(
-
-                "Open an image first.",
-
-                error=True,
-            )
-
-
+            self._toast("Open an image first.", error=True)
             return False
-
-
         return True
 
-
     # =========================================================
-    # STATUS BAR
-    # =========================================================
-
-    def _set_status(
-        self,
-        text,
-    ):
-
-        self.status_bar.set_status(
-            text
-        )
-
-
-    # =========================================================
-    # BUSY / LOADING
+    # STATUS / LOADING
     # =========================================================
 
-    def _set_busy(
-        self,
-        busy,
-        text=None,
-    ):
+    def _set_status(self, text):
+        self.status_bar.set_status(text)
 
-        # =====================================================
-        # BOTTOM STATUS
-        # =====================================================
-
-        self.status_bar.set_busy(
-
-            busy,
-
-            text,
-        )
-
-
-        # =====================================================
-        # HIDE OVERLAY
-        # =====================================================
+    def _set_busy(self, busy, text=None):
+        self.status_bar.set_busy(busy, text)
 
         if not busy:
-
             self.loading_overlay.hide_immediately()
-
             return
 
+        message = text or "Processing image..."
+        lower = message.lower()
 
-        # =====================================================
-        # PROCESSING MESSAGE
-        # =====================================================
-
-        message = (
-
-            text
-
-            or "Processing image..."
-        )
-
-
-        lower = (
-            message.lower()
-        )
-
-
-        # =====================================================
-        # DFT
-        # =====================================================
-
-        if (
-            "manual 2d dft" in lower
-            or
-            "computing 2d dft" in lower
-        ):
-
+        if "manual 2d dft" in lower or "computing 2d dft" in lower:
             self.loading_overlay.show_dft()
-
-
-        # =====================================================
-        # COMPRESSION
-        # =====================================================
-
-        elif (
-            "compress" in lower
-            or
-            "quality curve" in lower
-        ):
-
+        elif "compress" in lower or "quality curve" in lower:
             self.loading_overlay.show_compression()
-
-
-        # =====================================================
-        # TEXTURE
-        # =====================================================
-
         elif "texture" in lower:
-
             self.loading_overlay.show_texture()
-
-
-        # =====================================================
-        # HYBRID
-        # =====================================================
-
         elif "hybrid" in lower:
-
             self.loading_overlay.show_hybrid()
-
-
-        # =====================================================
-        # RGB FREQUENCY
-        # =====================================================
-
-        elif (
-            "three channel dft" in lower
-            or
-            "rgb frequenc" in lower
-        ):
-
+        elif "three channel dft" in lower or "rgb frequenc" in lower:
             self.loading_overlay.show_color_frequency()
-
-
-        # =====================================================
-        # GENERIC
-        # =====================================================
-
         else:
-
             self.loading_overlay.show(
-
-                title=(
-                    self._processing_title(
-                        message
-                    )
-                ),
-
+                title=self._processing_title(message),
                 subtitle=message,
-
-                detail=(
-                    "Signal-processing operation in progress"
-                ),
-
+                detail="Signal-processing operation in progress",
                 accent=AppColors.CYAN,
             )
 
-
-    # =========================================================
-    # PROCESSING TITLE
-    # =========================================================
-
     @staticmethod
-    def _processing_title(
-        text,
-    ):
+    def _processing_title(text):
+        cleaned = text.strip().replace("…", "").replace("...", "")
+        return cleaned if len(cleaned) <= 38 else "Processing Image"
 
-        cleaned = (
-
-            text
-            .strip()
-            .replace(
-                "…",
-                ""
-            )
-            .replace(
-                "...",
-                ""
-            )
-        )
-
-
-        if len(cleaned) <= 38:
-
-            return cleaned
-
-
-        return "Processing Image"
-
-
-    # =========================================================
-    # SNACKBAR
-    # =========================================================
-
-    def _toast(
-        self,
-        text,
-        error=False,
-    ):
-
-        icon = (
-
-            ft.Icons.ERROR_OUTLINE
-
-            if error
-
-            else ft.Icons.CHECK_CIRCLE_OUTLINE
-        )
-
-
-        color = (
-
-            AppColors.RED
-
-            if error
-
-            else AppColors.GREEN
-        )
-
+    def _toast(self, text, error=False):
+        icon = ft.Icons.ERROR_OUTLINE if error else ft.Icons.CHECK_CIRCLE_OUTLINE
+        color = AppColors.RED if error else AppColors.GREEN
 
         if error:
-
-            self.status_bar.show_error(
-                text
-            )
-
+            self.status_bar.show_error(text)
 
         self.page.show_dialog(
-
             ft.SnackBar(
-
                 content=ft.Row(
-
                     controls=[
-
-                        ft.Icon(
-                            icon,
-                            color=color,
-                        ),
-
-                        ft.Text(
-                            text,
-                            color=AppColors.TEXT,
-                        ),
+                        ft.Icon(icon, color=color),
+                        ft.Text(text, color=AppColors.TEXT),
                     ],
                 ),
-
                 show_close_icon=True,
             )
         )
 
-
     # =========================================================
-    # RESET ANALYSIS DISPLAY WHEN NEW IMAGE OPENS
+    # RESET HIDDEN VIEW STATE SAFELY
     # =========================================================
 
-    def _reset_analysis_display_state(
-        self,
-    ):
-
-        # =====================================================
-        # COMPRESSION
-        # =====================================================
-
+    def _reset_analysis_display_state(self):
+        # Set values directly. These views may currently be detached from page.
         self.compression_view.metric_total_value.value = "—"
-
         self.compression_view.metric_kept_value.value = "—"
-
         self.compression_view.metric_reduction_value.value = "—"
-
         self.compression_view.metric_psnr_value.value = "—"
 
-
-        # =====================================================
-        # TEXTURE
-        # =====================================================
-
         self.texture_view.current_result = None
-
         self.texture_view.current_name = None
-
-
-        self.texture_view.analysis_image_name.value = (
-            "No texture analyzed"
-        )
-
-
+        self.texture_view.analysis_image_name.value = "No texture analyzed"
         self.texture_view.analysis_status.value = (
-
-            "Open a repeating texture such as brick, "
-            "cloth, tiles, woven fabric, grass or stripes."
+            "Open a repeating texture such as brick, cloth, tiles, "
+            "woven fabric, grass or stripes."
         )
-
-
-        self.texture_view.direction_text.value = (
-            "WAITING"
-        )
-
-
-        self.texture_view.direction_text.color = (
-            AppColors.ORANGE
-        )
-
-
-        self.texture_view.angle_text.value = (
-            "—°"
-        )
-
-
-        self.texture_view.direction_icon.name = (
-            ft.Icons.EXPLORE_OUTLINED
-        )
-
-
-        self.texture_view.direction_icon.color = (
-            AppColors.ORANGE
-        )
-
-
+        self.texture_view.direction_text.value = "WAITING"
+        self.texture_view.direction_text.color = AppColors.ORANGE
+        self.texture_view.angle_text.value = "—°"
+        self.texture_view.direction_icon.name = ft.Icons.EXPLORE_OUTLINED
+        self.texture_view.direction_icon.color = AppColors.ORANGE
         self.texture_view.metric_direction_value.value = "—"
-
         self.texture_view.metric_spacing_value.value = "—"
-
         self.texture_view.metric_frequency_value.value = "—"
-
         self.texture_view.metric_strength_value.value = "—"
 
-
-        # =====================================================
-        # COLOR
-        # =====================================================
-
         self.color_view.active_channel = None
-
-
-        self.color_view.channel_statistics = {
-
-            "R": None,
-
-            "G": None,
-
-            "B": None,
-        }
-
-
-        color_controls = [
-
+        self.color_view.channel_statistics = {"R": None, "G": None, "B": None}
+        for control in [
             self.color_view.red_mean,
-
             self.color_view.red_std,
-
             self.color_view.red_min,
-
             self.color_view.red_max,
-
-
             self.color_view.green_mean,
-
             self.color_view.green_std,
-
             self.color_view.green_min,
-
             self.color_view.green_max,
-
-
             self.color_view.blue_mean,
-
             self.color_view.blue_std,
-
             self.color_view.blue_min,
-
             self.color_view.blue_max,
-        ]
-
-
-        for control in color_controls:
-
+        ]:
             control.value = "—"
 
-
-        self.color_view.mode_icon.name = (
-            ft.Icons.INFO_OUTLINE
-        )
-
-
-        self.color_view.mode_icon.color = (
-            AppColors.PURPLE_LIGHT
-        )
-
-
-        self.color_view.mode_title.value = (
-            "Color Analysis Ready"
-        )
-
-
-        self.color_view.mode_title.color = (
-            AppColors.PURPLE_LIGHT
-        )
-
-
+        self.color_view.mode_icon.name = ft.Icons.INFO_OUTLINE
+        self.color_view.mode_icon.color = AppColors.PURPLE_LIGHT
+        self.color_view.mode_title.value = "Color Analysis Ready"
+        self.color_view.mode_title.color = AppColors.PURPLE_LIGHT
         self.color_view.mode_description.value = (
-
-            "Choose a channel or analysis mode. "
-            "Results will appear in the processed-image workspace."
+            "Choose a channel or analysis mode. Results will appear "
+            "in the processed-image workspace."
         )
 
+    def _reset_processed_card_silently(self):
+        self.processed_card.title_text.value = "Processed Result"
+        self.processed_card.subtitle_text.value = "Live preview"
+        self.processed_card.placeholder_title = "Processed output appears here"
+        self.processed_card.placeholder_subtitle = "Choose a feature from the sidebar"
+        self.processed_card.switcher.content = self.processed_card._create_placeholder()
 
     # =========================================================
-    # GENERAL — OPEN IMAGE
+    # GENERAL ACTIONS
     # =========================================================
 
-    async def open_image(
-        self,
-        e,
-    ):
+    async def start_new_session(self, e):
+        await self.open_image(e)
 
+    async def open_image(self, e):
         try:
-
-            image, name = await (
-
-                self._pick_pil_image(
-                    "Open an image"
-                )
-            )
-
-
+            image, name = await self._pick_pil_image("Open an image")
             if image is None:
+                return False
 
-                return
-
-
-            # =================================================
-            # STORE ORIGINAL
-            # =================================================
-
-            self.original_image = (
-                image
-            )
-
-
-            self.current_image_name = (
-                name
-            )
-
-
-            # =================================================
-            # INVALIDATE OLD FREQUENCY DATA
-            # =================================================
-
+            self.original_image = image
+            self.current_image_name = name
             self.current_dft = None
-
             self.current_dft_source = None
-
             self.current_compressed_dft = None
 
+            # Update Home while it is still mounted, then enter a workspace.
+            if self.current_feature_index == 0:
+                self.home_view.set_session_name(name, refresh=True)
+                self._navigate_to(1)
+            else:
+                self.home_view.set_session_name(name, refresh=False)
 
-            # =================================================
-            # ORIGINAL PREVIEW
-            # =================================================
-
-            self._set_original_preview(
-
-                image,
-
-                name,
-            )
-
-
-            # =================================================
-            # CLEAR RESULT
-            # =================================================
-
-            self.reset_processed(
-                None
-            )
-
-
-            # =================================================
-            # RESET OLD ANALYSIS DISPLAY
-            # =================================================
-
+            # Image workspace is mounted now.
+            self._set_original_preview(image, name)
+            self.reset_processed(None)
             self._reset_analysis_display_state()
 
-
-            self.page.update()
-
-
-            # =================================================
-            # STATUS
-            # =================================================
-
-            self._set_status(
-
-                f"Loaded {name}"
-            )
-
-
-            self._toast(
-
-                f"Loaded {name}"
-            )
-
+            self._set_status(f"Loaded {name}")
+            self._toast(f"Loaded {name}")
+            return True
 
         except Exception as error:
+            self._toast(f"Could not open image: {error}", error=True)
+            return False
 
-            self._toast(
-
-                f"Could not open image: {error}",
-
-                error=True,
-            )
-
-
-    # =========================================================
-    # GENERAL — SAVE
-    # =========================================================
-
-    async def save_processed(
-        self,
-        e,
-    ):
-
+    async def save_processed(self, e):
         if not self.processed_bytes:
-
-            self._toast(
-
-                "There is no processed result to save.",
-
-                error=True,
-            )
-
+            self._toast("There is no processed result to save.", error=True)
             return
-
 
         try:
-
-            path = await (
-                ft.FilePicker()
-                .save_file(
-
-                    dialog_title=(
-                        "Save processed image"
-                    ),
-
-                    file_name=(
-                        "processed_result.png"
-                    ),
-
-                    file_type=(
-                        ft.FilePickerFileType.CUSTOM
-                    ),
-
-                    allowed_extensions=[
-                        "png"
-                    ],
-
-                    src_bytes=(
-                        self.processed_bytes
-                    ),
-                )
+            path = await ft.FilePicker().save_file(
+                dialog_title="Save processed image",
+                file_name="processed_result.png",
+                file_type=ft.FilePickerFileType.CUSTOM,
+                allowed_extensions=["png"],
+                src_bytes=self.processed_bytes,
             )
-
-
             if path:
-
-                self._toast(
-
-                    f"Saved result: "
-                    f"{os.path.basename(path)}"
-                )
-
-
-                self._set_status(
-
-                    f"Saved processed result to {path}"
-                )
-
-
+                self._toast(f"Saved result: {os.path.basename(path)}")
+                self._set_status(f"Saved processed result to {path}")
         except Exception as error:
+            self._toast(f"Could not save result: {error}", error=True)
 
-            self._toast(
-
-                f"Could not save result: {error}",
-
-                error=True,
-            )
-
-
-    # =========================================================
-    # GENERAL — RESET RESULT
-    # =========================================================
-
-    def reset_processed(
-        self,
-        e,
-    ):
-
+    def reset_processed(self, e):
         self.processed_image = None
-
         self.processed_bytes = None
 
-
-        self.processed_card.reset(
-
-            title="Processed Result",
-
-            subtitle="Live preview",
-
-            placeholder_title=(
-                "Processed output appears here"
-            ),
-
-            placeholder_subtitle=(
-                "Choose a feature from the sidebar"
-            ),
-        )
-
-
-        self._set_status(
-            "Result cleared"
-        )
-
-
-    # =========================================================
-    # GENERAL — GRAYSCALE
-    # =========================================================
-
-    def convert_to_grayscale(
-        self,
-        e,
-    ):
-
-        if not self._require_image():
-
-            return
-
-
-        grayscale = (
-
-            ImageOps
-            .grayscale(
-                self.original_image
+        if self.current_feature_index == 0:
+            # Card is detached on Home, so do not call .update() on it.
+            self._reset_processed_card_silently()
+        else:
+            self.processed_card.reset(
+                title="Processed Result",
+                subtitle="Live preview",
+                placeholder_title="Processed output appears here",
+                placeholder_subtitle="Choose a feature from the sidebar",
             )
-            .convert("RGB")
-        )
 
+        self._set_status("Result cleared")
 
+    def convert_to_grayscale(self, e):
+        if not self._require_image():
+            return
+        grayscale = ImageOps.grayscale(self.original_image).convert("RGB")
         self._set_processed_pil(
-
             grayscale,
-
             "Grayscale Preview",
-
             "Converted image to grayscale.",
         )
 
-
     # =========================================================
-    # DFT HELPER — PREPARE IMAGE
-    # =========================================================
-
-    def _prepare_image_for_dft(
-        self,
-    ):
-
-        grayscale = (
-
-            self.original_image
-            .convert("L")
-        )
-
-
-        # Manual DFT is computationally expensive,
-        # therefore work on a maximum 128 x 128 image.
-
-        grayscale.thumbnail(
-
-            (128, 128),
-
-            Image.Resampling.LANCZOS,
-        )
-
-
-        return np.array(
-
-            grayscale,
-
-            dtype=np.float64,
-        )
-
-
-    # =========================================================
-    # DFT HELPER — COMPUTE
+    # DFT HELPERS
     # =========================================================
 
-    def _compute_dft_sync(
-        self,
-    ):
+    def _prepare_image_for_dft(self):
+        grayscale = self.original_image.convert("L")
+        grayscale.thumbnail((128, 128), Image.Resampling.LANCZOS)
+        return np.array(grayscale, dtype=np.float64)
 
-        image_array = (
-            self._prepare_image_for_dft()
-        )
+    def _compute_dft_sync(self):
+        image_array = self._prepare_image_for_dft()
+        return image_array, manual_dft2(image_array)
 
-
-        return (
-
-            image_array,
-
-            manual_dft2(
-                image_array
-            ),
-        )
-
-
-    # =========================================================
-    # DFT HELPER — CACHE DFT
-    # =========================================================
-
-    async def _ensure_dft(
-        self,
-    ):
-
-        # =====================================================
-        # ALREADY COMPUTED
-        # =====================================================
-
+    async def _ensure_dft(self):
         if self.current_dft is not None:
-
             return True
-
-
-        # =====================================================
-        # IMAGE REQUIRED
-        # =====================================================
-
         if not self._require_image():
-
             return False
 
-
-        # =====================================================
-        # COMPUTE
-        # =====================================================
-
-        self._set_busy(
-
-            True,
-
-            "Computing manual 2D DFT…",
-        )
-
-
+        self._set_busy(True, "Computing manual 2D DFT…")
         try:
-
-            source, dft = await asyncio.to_thread(
-
-                self._compute_dft_sync
-            )
-
-
-            self.current_dft_source = (
-                source
-            )
-
-
-            self.current_dft = (
-                dft
-            )
-
-
-            self._set_status(
-
-                "Manual 2D DFT completed."
-            )
-
-
+            source, dft = await asyncio.to_thread(self._compute_dft_sync)
+            self.current_dft_source = source
+            self.current_dft = dft
+            self._set_status("Manual 2D DFT completed.")
             return True
-
-
         except Exception as error:
-
-            self._toast(
-
-                f"DFT error: {error}",
-
-                error=True,
-            )
-
-
+            self._toast(f"DFT error: {error}", error=True)
             return False
-
-
         finally:
-
-            self._set_busy(
-                False
-            )
-
+            self._set_busy(False)
 
     # =========================================================
-    # FEATURE 4 — SHOW DFT SPECTRUM
+    # FEATURE 4 — FREQUENCY EDITOR
     # =========================================================
 
-    async def show_frequency_spectrum(
-        self,
-        e,
-    ):
-
+    async def show_frequency_spectrum(self, e):
         if not await self._ensure_dft():
-
             return
 
-
-        self._set_busy(
-
-            True,
-
-            "Creating centered DFT spectrum…",
-        )
-
-
+        self._set_busy(True, "Creating centered DFT spectrum…")
         try:
-
             spectrum = await asyncio.to_thread(
-
                 create_spectrum_image,
-
                 self.current_dft,
             )
-
-
-            image = (
-
-                Image
-                .fromarray(
-                    spectrum
-                )
-                .convert("RGB")
-            )
-
-
+            image = Image.fromarray(spectrum).convert("RGB")
             self._set_processed_pil(
-
                 image,
-
                 "2D DFT Frequency Spectrum",
-
-                (
-                    "Displaying centered "
-                    "log-magnitude DFT spectrum."
-                ),
+                "Displaying centered log-magnitude DFT spectrum.",
             )
-
-
         except Exception as error:
-
-            self._toast(
-
-                f"Spectrum error: {error}",
-
-                error=True,
-            )
-
-
+            self._toast(f"Spectrum error: {error}", error=True)
         finally:
+            self._set_busy(False)
 
-            self._set_busy(
-                False
-            )
-
-
-    # =========================================================
-    # FEATURE 4 — RECONSTRUCT DFT
-    # =========================================================
-
-    async def reconstruct_dft(
-        self,
-        e,
-    ):
-
+    async def reconstruct_dft(self, e):
         if not await self._ensure_dft():
-
             return
 
-
-        self._set_busy(
-
-            True,
-
-            "Reconstructing image with inverse 2D DFT…",
-        )
-
-
+        self._set_busy(True, "Reconstructing image with inverse 2D DFT…")
         try:
-
             reconstructed = await asyncio.to_thread(
-
                 reconstruct_from_dft,
-
                 self.current_dft,
             )
-
-
-            image = (
-
-                Image
-                .fromarray(
-                    reconstructed
-                )
-                .convert("RGB")
-            )
-
-
+            image = Image.fromarray(reconstructed).convert("RGB")
             self._set_processed_pil(
-
                 image,
-
                 "Reconstructed from DFT",
-
-                (
-                    "Inverse DFT "
-                    "reconstruction completed."
-                ),
+                "Inverse DFT reconstruction completed.",
             )
-
-
         except Exception as error:
-
-            self._toast(
-
-                f"Reconstruction error: {error}",
-
-                error=True,
-            )
-
-
+            self._toast(f"Reconstruction error: {error}", error=True)
         finally:
+            self._set_busy(False)
 
-            self._set_busy(
-                False
-            )
-
-
-    # =========================================================
-    # FEATURE 4 — LOW PASS
-    # =========================================================
-
-    async def apply_low_pass(
-        self,
-        e,
-    ):
-
+    async def apply_low_pass(self, e):
         if not await self._ensure_dft():
-
             return
 
-
-        radius = (
-
-            self.frequency_view
-            .get_cutoff_radius()
-        )
-
-
-        self._set_busy(
-
-            True,
-
-            "Applying low-pass frequency mask…",
-        )
-
-
+        radius = self.frequency_view.get_cutoff_radius()
+        self._set_busy(True, "Applying low-pass frequency mask…")
         try:
-
             filtered = await asyncio.to_thread(
-
                 apply_low_pass_filter,
-
                 self.current_dft,
-
                 radius,
             )
-
-
             reconstructed = await asyncio.to_thread(
-
                 reconstruct_from_dft,
-
                 filtered,
             )
-
-
-            result_image = (
-
-                Image
-                .fromarray(
-                    reconstructed
-                )
-                .convert("RGB")
-            )
-
-
+            result_image = Image.fromarray(reconstructed).convert("RGB")
             self._set_processed_pil(
-
                 result_image,
-
                 f"Low-Pass • Radius {radius}",
-
-                (
-                    f"Low-pass filter applied "
-                    f"with radius {radius}."
-                ),
+                f"Low-pass filter applied with radius {radius}.",
             )
-
-
         except Exception as error:
-
-            self._toast(
-
-                f"Low-pass error: {error}",
-
-                error=True,
-            )
-
-
+            self._toast(f"Low-pass error: {error}", error=True)
         finally:
+            self._set_busy(False)
 
-            self._set_busy(
-                False
-            )
-
-
-    # =========================================================
-    # FEATURE 4 — HIGH PASS
-    # =========================================================
-
-    async def apply_high_pass(
-        self,
-        e,
-    ):
-
+    async def apply_high_pass(self, e):
         if not await self._ensure_dft():
-
             return
 
-
-        radius = (
-
-            self.frequency_view
-            .get_cutoff_radius()
-        )
-
-
-        self._set_busy(
-
-            True,
-
-            "Applying high-pass frequency mask…",
-        )
-
-
+        radius = self.frequency_view.get_cutoff_radius()
+        self._set_busy(True, "Applying high-pass frequency mask…")
         try:
-
             filtered = await asyncio.to_thread(
-
                 apply_high_pass_filter,
-
                 self.current_dft,
-
                 radius,
             )
-
-
             reconstructed = await asyncio.to_thread(
-
                 reconstruct_from_dft,
-
                 filtered,
             )
-
-
-            result_image = (
-
-                Image
-                .fromarray(
-                    reconstructed
-                )
-                .convert("RGB")
-            )
-
-
+            result_image = Image.fromarray(reconstructed).convert("RGB")
             self._set_processed_pil(
-
                 result_image,
-
                 f"High-Pass • Radius {radius}",
-
-                (
-                    f"High-pass filter applied "
-                    f"with radius {radius}."
-                ),
+                f"High-pass filter applied with radius {radius}.",
             )
-
-
         except Exception as error:
-
-            self._toast(
-
-                f"High-pass error: {error}",
-
-                error=True,
-            )
-
-
+            self._toast(f"High-pass error: {error}", error=True)
         finally:
-
-            self._set_busy(
-                False
-            )
-
+            self._set_busy(False)
 
     # =========================================================
     # FEATURE 5 — COMPRESSION
     # =========================================================
 
-    async def apply_dft_compression(
-        self,
-        e,
-    ):
-
+    async def apply_dft_compression(self, e):
         if not await self._ensure_dft():
-
             return
 
-
-        percentage = (
-
-            self.compression_view
-            .get_keep_percentage()
-        )
-
-
-        self._set_busy(
-
-            True,
-
-            "Compressing DFT coefficients…",
-        )
-
+        percentage = self.compression_view.get_keep_percentage()
+        self._set_busy(True, "Compressing DFT coefficients…")
 
         try:
-
-            (
-                compressed_frequency,
-                _,
-                kept_count,
-                total_count,
-
-            ) = await asyncio.to_thread(
-
+            compressed_frequency, _, kept_count, total_count = await asyncio.to_thread(
                 compress_dft,
-
                 self.current_dft,
-
                 percentage,
             )
-
-
-            # =================================================
-            # STORE COMPRESSED DFT
-            # =================================================
-
-            self.current_compressed_dft = (
-                compressed_frequency
-            )
-
-
-            # =================================================
-            # RECONSTRUCT
-            # =================================================
+            self.current_compressed_dft = compressed_frequency
 
             reconstructed = await asyncio.to_thread(
-
                 reconstruct_from_dft,
-
                 compressed_frequency,
             )
 
-
-            # =================================================
-            # ORIGINAL FOR PSNR
-            # =================================================
-
             original_for_psnr = np.clip(
-
                 self.current_dft_source,
-
                 0,
-
                 255,
+            ).astype(np.uint8)
 
-            ).astype(
-                np.uint8
-            )
-
-
-            # =================================================
-            # PSNR
-            # =================================================
-
-            psnr = calculate_psnr(
-
-                original_for_psnr,
-
-                reconstructed,
-            )
-
-
-            # =================================================
-            # REDUCTION
-            # =================================================
-
-            removed_count = (
-
-                total_count
-                -
-                kept_count
-            )
-
-
-            reduction = (
-
-                removed_count
-                /
-                total_count
-                *
-                100.0
-            )
-
-
-            # =================================================
-            # PSNR TEXT
-            # =================================================
-
-            psnr_text = (
-
-                "∞"
-
-                if np.isinf(
-                    psnr
-                )
-
-                else f"{psnr:.2f} dB"
-            )
-
-
-            # =================================================
-            # UPDATE NEW DASHBOARD
-            # =================================================
+            psnr = calculate_psnr(original_for_psnr, reconstructed)
+            removed_count = total_count - kept_count
+            reduction = removed_count / total_count * 100.0
+            psnr_text = "∞" if np.isinf(psnr) else f"{psnr:.2f} dB"
 
             self.compression_view.update_metrics(
-
                 total=total_count,
-
                 kept=kept_count,
-
                 reduction=reduction,
-
                 psnr=psnr_text,
             )
 
-
-            # =================================================
-            # DISPLAY RESULT
-            # =================================================
-
             self._set_processed_pil(
-
-                Image.fromarray(
-                    reconstructed
-                ).convert("RGB"),
-
-                (
-                    f"DFT Compression • "
-                    f"Keep {percentage}%"
-                ),
-
-                (
-                    "Compression complete — "
-                    f"retained {percentage}% "
-                    "of coefficients."
-                ),
+                Image.fromarray(reconstructed).convert("RGB"),
+                f"DFT Compression • Keep {percentage}%",
+                f"Compression complete — retained {percentage}% of coefficients.",
             )
-
-
         except Exception as error:
-
-            self._toast(
-
-                f"Compression error: {error}",
-
-                error=True,
-            )
-
-
+            self._toast(f"Compression error: {error}", error=True)
         finally:
+            self._set_busy(False)
 
-            self._set_busy(
-                False
-            )
-
-
-    # =========================================================
-    # FEATURE 5 — BUILD PSNR CURVE
-    # =========================================================
-
-    def _build_compression_curve_plot(
-        self,
-    ):
-
-        percentages = [
-
-            1,
-            2,
-            5,
-            10,
-            20,
-            40,
-            60,
-            80,
-            95,
-        ]
-
-
+    def _build_compression_curve_plot(self):
+        percentages = [1, 2, 5, 10, 20, 40, 60, 80, 95]
         original = np.clip(
-
             self.current_dft_source,
-
             0,
-
             255,
-
-        ).astype(
-            np.uint8
-        )
-
-
+        ).astype(np.uint8)
         psnr_values = []
 
-
         for percentage in percentages:
+            compressed, _, _, _ = compress_dft(self.current_dft, percentage)
+            reconstructed = reconstruct_from_dft(compressed)
+            psnr_values.append(calculate_psnr(original, reconstructed))
 
-            (
-                compressed,
-                _,
-                _,
-                _,
-
-            ) = compress_dft(
-
-                self.current_dft,
-
-                percentage,
-            )
-
-
-            reconstructed = (
-
-                reconstruct_from_dft(
-                    compressed
-                )
-            )
-
-
-            psnr_values.append(
-
-                calculate_psnr(
-
-                    original,
-
-                    reconstructed,
-                )
-            )
-
-
-        # =====================================================
-        # MATPLOTLIB
-        # =====================================================
-
-        fig, ax = plt.subplots(
-
-            figsize=(
-                8.5,
-                4.6,
-            )
-        )
-
-
-        fig.patch.set_facecolor(
-            "#0A0F19"
-        )
-
-
-        ax.set_facecolor(
-            "#0A0F19"
-        )
-
-
-        ax.plot(
-
-            percentages,
-
-            psnr_values,
-
-            marker="o",
-
-            linewidth=2.2,
-        )
-
-
-        ax.fill_between(
-
-            percentages,
-
-            psnr_values,
-
-            alpha=0.08,
-        )
-
-
-        ax.set_xlabel(
-
-            "DFT coefficients kept (%)",
-
-            color="#CBD5E1",
-        )
-
-
-        ax.set_ylabel(
-
-            "PSNR (dB)",
-
-            color="#CBD5E1",
-        )
-
-
+        fig, ax = plt.subplots(figsize=(8.5, 4.6))
+        fig.patch.set_facecolor("#0A0F19")
+        ax.set_facecolor("#0A0F19")
+        ax.plot(percentages, psnr_values, marker="o", linewidth=2.2)
+        ax.fill_between(percentages, psnr_values, alpha=0.08)
+        ax.set_xlabel("DFT coefficients kept (%)", color="#CBD5E1")
+        ax.set_ylabel("PSNR (dB)", color="#CBD5E1")
         ax.set_title(
-
             "Compression vs Reconstruction Quality",
-
             color="#F8FAFC",
-
             weight="bold",
         )
-
-
-        ax.grid(
-            alpha=0.16
-        )
-
-
-        ax.tick_params(
-            colors="#94A3B8"
-        )
-
-
+        ax.grid(alpha=0.16)
+        ax.tick_params(colors="#94A3B8")
         for spine in ax.spines.values():
-
-            spine.set_color(
-                "#334155"
-            )
-
-
+            spine.set_color("#334155")
         fig.tight_layout()
+        return self._figure_to_png_bytes(fig)
 
-
-        return (
-
-            self._figure_to_png_bytes(
-                fig
-            )
-        )
-
-
-    # =========================================================
-    # FEATURE 5 — SHOW QUALITY CURVE
-    # =========================================================
-
-    async def plot_compression_quality(
-        self,
-        e,
-    ):
-
+    async def plot_compression_quality(self, e):
         if not await self._ensure_dft():
-
             return
 
-
-        self._set_busy(
-
-            True,
-
-            "Building compression quality curve…",
-        )
-
-
+        self._set_busy(True, "Building compression quality curve…")
         try:
-
             plot_bytes = await asyncio.to_thread(
-
                 self._build_compression_curve_plot
             )
-
-
             self._set_processed_bytes(
-
                 plot_bytes,
-
                 "Compression vs PSNR",
-
-                (
-                    "Compression quality "
-                    "curve generated."
-                ),
+                "Compression quality curve generated.",
             )
-
-
         except Exception as error:
-
-            self._toast(
-
-                f"Could not create plot: {error}",
-
-                error=True,
-            )
-
-
+            self._toast(f"Could not create plot: {error}", error=True)
         finally:
-
-            self._set_busy(
-                False
-            )
-
+            self._set_busy(False)
 
     # =========================================================
-    # FEATURE 8 — TEXTURE ANALYSIS
+    # FEATURE 8 — TEXTURE
     # =========================================================
 
-    async def analyze_current_texture(
-        self,
-        e,
-    ):
-
+    async def analyze_current_texture(self, e):
         if not self._require_image():
-
             return
 
-
-        self._set_busy(
-
-            True,
-
-            "Analyzing texture spectrum…",
-        )
-
-
+        self._set_busy(True, "Analyzing texture spectrum…")
         try:
+            image_array = self._prepare_image_for_dft()
+            result = await asyncio.to_thread(analyze_texture, image_array)
 
-            # =================================================
-            # PREPARE IMAGE
-            # =================================================
-
-            image_array = (
-                self._prepare_image_for_dft()
-            )
-
-
-            # =================================================
-            # ANALYZE
-            # =================================================
-
-            result = await asyncio.to_thread(
-
-                analyze_texture,
-
-                image_array,
-            )
-
-
-            # =================================================
-            # SPECTRUM
-            # =================================================
-
-            spectrum = (
-
-                Image
-                .fromarray(
-                    result["spectrum"]
-                )
-                .convert("RGB")
-            )
-
-
+            spectrum = Image.fromarray(result["spectrum"]).convert("RGB")
             self._set_processed_pil(
-
                 spectrum,
-
                 "Texture Frequency Spectrum",
-
-                (
-                    "Texture analysis completed "
-                    f"for {self.current_image_name}."
-                ),
+                f"Texture analysis completed for {self.current_image_name}.",
             )
 
-
-            # =================================================
-            # UPDATE DASHBOARD
-            # =================================================
-
-            self.texture_view.update_result(
-
-                (
-                    self.current_image_name
-                    or "Texture"
-                ),
-
-                result,
-            )
-
-
-            # =================================================
-            # STORE RESULT
-            # =================================================
-
-            key = (
-
-                self.current_image_name
-
-                or
-
-                f"Texture "
-                f"{len(self.texture_results) + 1}"
-            )
-
-
-            self.texture_results[
-                key
-            ] = result
-
-
-            # =================================================
-            # UPDATE COMPARISON
-            # =================================================
-
-            self.texture_view.update_comparisons(
-
-                self.texture_results
-            )
-
-
+            key = self.current_image_name or f"Texture {len(self.texture_results) + 1}"
+            self.texture_view.update_result(key, result)
+            self.texture_results[key] = result
+            self.texture_view.update_comparisons(self.texture_results)
         except Exception as error:
-
-            self._toast(
-
-                f"Texture analysis error: {error}",
-
-                error=True,
-            )
-
-
+            self._toast(f"Texture analysis error: {error}", error=True)
         finally:
+            self._set_busy(False)
 
-            self._set_busy(
-                False
-            )
-
-
-    # =========================================================
-    # FEATURE 8 — TEXTURE COMPARISON
-    # =========================================================
-
-    def show_texture_comparison(
-        self,
-        e,
-    ):
-
+    def show_texture_comparison(self, e):
         if not self.texture_results:
-
-            self._toast(
-
-                "Analyze at least one texture first.",
-
-                error=True,
-            )
-
-
+            self._toast("Analyze at least one texture first.", error=True)
             return
 
-
-        self.texture_view.update_comparisons(
-
-            self.texture_results
-        )
-
-
+        self.texture_view.update_comparisons(self.texture_results)
         self._set_status(
-
-            (
-                f"Showing "
-                f"{len(self.texture_results)} "
-                f"saved texture result(s)."
-            )
+            f"Showing {len(self.texture_results)} saved texture result(s)."
         )
 
-
     # =========================================================
-    # FEATURE 9 — SELECT IMAGE A
+    # FEATURE 9 — HYBRID
     # =========================================================
 
-    async def select_hybrid_low_image(
-        self,
-        e,
-    ):
-
+    async def select_hybrid_low_image(self, e):
         try:
-
-            image, name = await (
-
-                self._pick_pil_image(
-
-                    "Select low-frequency source image"
-                )
+            image, name = await self._pick_pil_image(
+                "Select low-frequency source image"
             )
-
-
             if image is None:
-
                 return
 
-
-            # =================================================
-            # STORE
-            # =================================================
-
-            self.hybrid_low_image = (
-                image
-            )
-
-
-            self.hybrid_low_name = (
-                name
-            )
-
-
-            self.hybrid_low_preview_bytes = (
-
-                self._pil_to_png_bytes(
-                    image
-                )
-            )
-
-
-            # =================================================
-            # UPDATE HYBRID VIEW
-            # =================================================
-
+            self.hybrid_low_image = image
+            self.hybrid_low_name = name
+            self.hybrid_low_preview_bytes = self._pil_to_png_bytes(image)
             self.hybrid_view.update_low_source(
-
                 name,
-
                 self.hybrid_low_preview_bytes,
             )
 
-
-            # =================================================
-            # IMAGE A ALSO BECOMES MAIN ORIGINAL
-            #
-            # This preserves the behaviour from your
-            # original working implementation.
-            # =================================================
-
-            self.original_image = (
-                image
-            )
-
-
-            self.current_image_name = (
-                name
-            )
-
-
-            # =================================================
-            # INVALIDATE DFT CACHE
-            # =================================================
-
+            self.original_image = image
+            self.current_image_name = name
             self.current_dft = None
-
             self.current_dft_source = None
-
             self.current_compressed_dft = None
-
-
-            # =================================================
-            # MAIN ORIGINAL PREVIEW
-            # =================================================
-
-            self._set_original_preview(
-
-                image,
-
-                name,
-            )
-
-
-            # =================================================
-            # STATUS
-            # =================================================
-
-            self._set_status(
-
-                (
-                    "Hybrid low-frequency "
-                    f"source: {name}"
-                )
-            )
-
-
+            self._set_original_preview(image, name)
+            self.home_view.set_session_name(name, refresh=False)
+            self._set_status(f"Hybrid low-frequency source: {name}")
         except Exception as error:
+            self._toast(f"Could not select Image A: {error}", error=True)
 
-            self._toast(
-
-                f"Could not select Image A: {error}",
-
-                error=True,
-            )
-
-
-    # =========================================================
-    # FEATURE 9 — SELECT IMAGE B
-    # =========================================================
-
-    async def select_hybrid_high_image(
-        self,
-        e,
-    ):
-
+    async def select_hybrid_high_image(self, e):
         try:
-
-            image, name = await (
-
-                self._pick_pil_image(
-
-                    "Select high-frequency source image"
-                )
+            image, name = await self._pick_pil_image(
+                "Select high-frequency source image"
             )
-
-
             if image is None:
-
                 return
 
-
-            # =================================================
-            # STORE
-            # =================================================
-
-            self.hybrid_high_image = (
-                image
-            )
-
-
-            self.hybrid_high_name = (
-                name
-            )
-
-
-            self.hybrid_high_preview_bytes = (
-
-                self._pil_to_png_bytes(
-                    image
-                )
-            )
-
-
-            # =================================================
-            # UPDATE VIEW
-            # =================================================
-
+            self.hybrid_high_image = image
+            self.hybrid_high_name = name
+            self.hybrid_high_preview_bytes = self._pil_to_png_bytes(image)
             self.hybrid_view.update_high_source(
-
                 name,
-
                 self.hybrid_high_preview_bytes,
             )
-
-
-            # =================================================
-            # STATUS
-            # =================================================
-
-            self._set_status(
-
-                (
-                    "Hybrid high-frequency "
-                    f"source: {name}"
-                )
-            )
-
-
+            self._set_status(f"Hybrid high-frequency source: {name}")
         except Exception as error:
+            self._toast(f"Could not select Image B: {error}", error=True)
 
-            self._toast(
-
-                f"Could not select Image B: {error}",
-
-                error=True,
-            )
-
-
-    # =========================================================
-    # FEATURE 9 — SYNCHRONOUS HYBRID PROCESS
-    # =========================================================
-
-    def _create_hybrid_sync(
-        self,
-        low_radius,
-        high_radius,
-    ):
-
-        # Both images must have identical dimensions.
-
-        target_size = (
-            128,
-            128,
-        )
-
-
-        # =====================================================
-        # IMAGE A
-        # =====================================================
+    def _create_hybrid_sync(self, low_radius, high_radius):
+        target_size = (128, 128)
 
         low_image = ImageOps.fit(
-
             self.hybrid_low_image,
-
             target_size,
-
-            method=(
-                Image.Resampling.LANCZOS
-            ),
+            method=Image.Resampling.LANCZOS,
         )
-
-
-        # =====================================================
-        # IMAGE B
-        # =====================================================
-
         high_image = ImageOps.fit(
-
             self.hybrid_high_image,
-
             target_size,
-
-            method=(
-                Image.Resampling.LANCZOS
-            ),
+            method=Image.Resampling.LANCZOS,
         )
 
-
-        # =====================================================
-        # NUMPY
-        # =====================================================
-
-        low_array = np.array(
-
-            low_image,
-
-            dtype=np.float64,
-        )
-
-
-        high_array = np.array(
-
-            high_image,
-
-            dtype=np.float64,
-        )
-
-
-        # =====================================================
-        # ALGORITHM
-        # =====================================================
+        low_array = np.array(low_image, dtype=np.float64)
+        high_array = np.array(high_image, dtype=np.float64)
 
         return create_hybrid_image(
-
             low_array,
-
             high_array,
-
             low_radius,
-
             high_radius,
         )
 
-
-    # =========================================================
-    # FEATURE 9 — CREATE HYBRID
-    # =========================================================
-
-    async def generate_hybrid_image(
-        self,
-        e,
-    ):
-
-        # =====================================================
-        # REQUIRE BOTH SOURCES
-        # =====================================================
-
-        if (
-            self.hybrid_low_image is None
-            or
-            self.hybrid_high_image is None
-        ):
-
-            self._toast(
-
-                (
-                    "Select both hybrid "
-                    "source images first."
-                ),
-
-                error=True,
-            )
-
-
+    async def generate_hybrid_image(self, e):
+        if self.hybrid_low_image is None or self.hybrid_high_image is None:
+            self._toast("Select both hybrid source images first.", error=True)
             return
 
+        low_radius = self.hybrid_view.get_low_radius()
+        high_radius = self.hybrid_view.get_high_radius()
 
-        # =====================================================
-        # RADII FROM NEW VIEW
-        # =====================================================
-
-        low_radius = (
-
-            self.hybrid_view
-            .get_low_radius()
-        )
-
-
-        high_radius = (
-
-            self.hybrid_view
-            .get_high_radius()
-        )
-
-
-        # =====================================================
-        # PROCESS
-        # =====================================================
-
-        self._set_busy(
-
-            True,
-
-            "Creating hybrid image from two DFTs…",
-        )
-
-
+        self._set_busy(True, "Creating hybrid image from two DFTs…")
         try:
-
             result = await asyncio.to_thread(
-
                 self._create_hybrid_sync,
-
                 low_radius,
-
                 high_radius,
             )
-
-
-            hybrid = Image.fromarray(
-
-                result["hybrid"]
-            )
-
-
+            hybrid = Image.fromarray(result["hybrid"])
             self._set_processed_pil(
-
                 hybrid,
-
                 "Hybrid Image",
-
-                (
-                    "Hybrid image "
-                    "created successfully."
-                ),
+                "Hybrid image created successfully.",
             )
-
-
-            # =================================================
-            # UPDATE HYBRID PAGE
-            # =================================================
-
             self.hybrid_view.show_created_status()
-
-
         except Exception as error:
-
-            self._toast(
-
-                f"Hybrid image error: {error}",
-
-                error=True,
-            )
-
-
+            self._toast(f"Hybrid image error: {error}", error=True)
         finally:
-
-            self._set_busy(
-                False
-            )
-
+            self._set_busy(False)
 
     # =========================================================
-    # FEATURE 12 — SHOW RGB CHANNEL
+    # FEATURE 12 — COLOR
     # =========================================================
 
-    def show_rgb_channel(
-        self,
-        channel_name,
-    ):
-
+    def show_rgb_channel(self, channel_name):
         if not self._require_image():
-
             return
 
-
         try:
+            image_array = np.array(self.original_image, dtype=np.uint8)
+            red, green, blue = split_rgb_channels(image_array)
+            channel_map = {"R": red, "G": green, "B": blue}
+            name_map = {"R": "Red", "G": "Green", "B": "Blue"}
 
-            # =================================================
-            # RGB ARRAY
-            # =================================================
-
-            image_array = np.array(
-
-                self.original_image,
-
-                dtype=np.uint8,
-            )
-
-
-            # =================================================
-            # SPLIT
-            # =================================================
-
-            red, green, blue = (
-
-                split_rgb_channels(
-                    image_array
-                )
-            )
-
-
-            channel_map = {
-
-                "R": red,
-
-                "G": green,
-
-                "B": blue,
-            }
-
-
-            name_map = {
-
-                "R": "Red",
-
-                "G": "Green",
-
-                "B": "Blue",
-            }
-
-
-            channel = (
-
-                channel_map[
-                    channel_name
-                ]
-            )
-
-
-            # =================================================
-            # COLORED VISUALIZATION
-            # =================================================
-
-            colored = (
-
-                create_colored_channel(
-
-                    channel,
-
-                    channel_name,
-                )
-            )
-
-
-            # =================================================
-            # STATISTICS
-            # =================================================
-
-            stats = (
-
-                get_channel_statistics(
-                    channel
-                )
-            )
-
-
-            # =================================================
-            # DISPLAY
-            # =================================================
+            channel = channel_map[channel_name]
+            colored = create_colored_channel(channel, channel_name)
+            stats = get_channel_statistics(channel)
 
             self._set_processed_pil(
-
-                Image.fromarray(
-                    colored
-                ),
-
-                (
-                    f"{name_map[channel_name]} "
-                    f"Channel"
-                ),
-
-                (
-                    "Displaying the "
-                    f"{name_map[channel_name].lower()} "
-                    "channel."
-                ),
+                Image.fromarray(colored),
+                f"{name_map[channel_name]} Channel",
+                f"Displaying the {name_map[channel_name].lower()} channel.",
             )
-
-
-            # =================================================
-            # NEW COLOR DASHBOARD
-            # =================================================
-
-            self.color_view.update_channel_statistics(
-
-                channel_name,
-
-                stats,
-            )
-
-
+            self.color_view.update_channel_statistics(channel_name, stats)
         except Exception as error:
+            self._toast(f"Color analysis error: {error}", error=True)
 
-            self._toast(
+    def _build_rgb_histogram_plot(self):
+        image_array = np.array(self.original_image, dtype=np.uint8)
+        red, green, blue = split_rgb_channels(image_array)
 
-                f"Color analysis error: {error}",
-
-                error=True,
-            )
-
-
-    # =========================================================
-    # FEATURE 12 — BUILD RGB HISTOGRAM
-    # =========================================================
-
-    def _build_rgb_histogram_plot(
-        self,
-    ):
-
-        image_array = np.array(
-
-            self.original_image,
-
-            dtype=np.uint8,
-        )
-
-
-        red, green, blue = (
-
-            split_rgb_channels(
-                image_array
-            )
-        )
-
-
-        # =====================================================
-        # FIGURE
-        # =====================================================
-
-        fig, ax = plt.subplots(
-
-            figsize=(
-                8.5,
-                4.6,
-            )
-        )
-
-
-        fig.patch.set_facecolor(
-            "#0A0F19"
-        )
-
-
-        ax.set_facecolor(
-            "#0A0F19"
-        )
-
-
-        # =====================================================
-        # RED
-        # =====================================================
-
+        fig, ax = plt.subplots(figsize=(8.5, 4.6))
+        fig.patch.set_facecolor("#0A0F19")
+        ax.set_facecolor("#0A0F19")
         ax.hist(
-
             red.flatten(),
-
             bins=256,
-
             range=(0, 255),
-
             alpha=0.45,
-
             label="Red",
-
             color="#EF4444",
         )
-
-
-        # =====================================================
-        # GREEN
-        # =====================================================
-
         ax.hist(
-
             green.flatten(),
-
             bins=256,
-
             range=(0, 255),
-
             alpha=0.45,
-
             label="Green",
-
             color="#10B981",
         )
-
-
-        # =====================================================
-        # BLUE
-        # =====================================================
-
         ax.hist(
-
             blue.flatten(),
-
             bins=256,
-
             range=(0, 255),
-
             alpha=0.45,
-
             label="Blue",
-
             color="#3B82F6",
         )
-
-
-        ax.set_xlabel(
-
-            "Intensity",
-
-            color="#CBD5E1",
-        )
-
-
-        ax.set_ylabel(
-
-            "Pixel count",
-
-            color="#CBD5E1",
-        )
-
-
+        ax.set_xlabel("Intensity", color="#CBD5E1")
+        ax.set_ylabel("Pixel count", color="#CBD5E1")
         ax.set_title(
-
             "RGB Channel Histogram Comparison",
-
             color="#F8FAFC",
-
             weight="bold",
         )
-
-
-        ax.tick_params(
-
-            colors="#94A3B8"
-        )
-
-
-        ax.grid(
-
-            alpha=0.12
-        )
-
-
+        ax.tick_params(colors="#94A3B8")
+        ax.grid(alpha=0.12)
         ax.legend(
-
             facecolor="#111827",
-
             edgecolor="#334155",
-
             labelcolor="#E2E8F0",
         )
-
-
         for spine in ax.spines.values():
-
-            spine.set_color(
-                "#334155"
-            )
-
-
+            spine.set_color("#334155")
         fig.tight_layout()
+        return self._figure_to_png_bytes(fig)
 
-
-        return (
-
-            self._figure_to_png_bytes(
-                fig
-            )
-        )
-
-
-    # =========================================================
-    # FEATURE 12 — RGB HISTOGRAMS
-    # =========================================================
-
-    async def show_rgb_histograms(
-        self,
-        e,
-    ):
-
+    async def show_rgb_histograms(self, e):
         if not self._require_image():
-
             return
 
-
-        self._set_busy(
-
-            True,
-
-            "Building RGB histograms…",
-        )
-
-
+        self._set_busy(True, "Building RGB histograms…")
         try:
-
-            plot_bytes = await asyncio.to_thread(
-
-                self._build_rgb_histogram_plot
-            )
-
-
+            plot_bytes = await asyncio.to_thread(self._build_rgb_histogram_plot)
             self._set_processed_bytes(
-
                 plot_bytes,
-
                 "RGB Histogram Comparison",
-
-                (
-                    "RGB histogram "
-                    "comparison generated."
-                ),
+                "RGB histogram comparison generated.",
             )
-
-
             self.color_view.show_histogram_status()
-
-
         except Exception as error:
-
-            self._toast(
-
-                f"Histogram error: {error}",
-
-                error=True,
-            )
-
-
+            self._toast(f"Histogram error: {error}", error=True)
         finally:
+            self._set_busy(False)
 
-            self._set_busy(
-                False
-            )
+    def _build_rgb_frequency_plot(self):
+        working = self.original_image.copy()
+        working.thumbnail((128, 128), Image.Resampling.LANCZOS)
+        image_array = np.array(working, dtype=np.uint8)
 
-
-    # =========================================================
-    # FEATURE 12 — BUILD RGB FREQUENCY PLOT
-    # =========================================================
-
-    def _build_rgb_frequency_plot(
-        self,
-    ):
-
-        # =====================================================
-        # DOWNSIZE FOR MANUAL DFT
-        # =====================================================
-
-        working = (
-            self.original_image.copy()
-        )
-
-
-        working.thumbnail(
-
-            (128, 128),
-
-            Image.Resampling.LANCZOS,
-        )
-
-
-        image_array = np.array(
-
-            working,
-
-            dtype=np.uint8,
-        )
-
-
-        # =====================================================
-        # SPLIT RGB
-        # =====================================================
-
-        red, green, blue = (
-
-            split_rgb_channels(
-                image_array
-            )
-        )
-
-
-        # =====================================================
-        # CHANNEL SPECTRA
-        # =====================================================
-
+        red, green, blue = split_rgb_channels(image_array)
         spectra = [
-
-            calculate_channel_spectrum(
-                red
-            ),
-
-            calculate_channel_spectrum(
-                green
-            ),
-
-            calculate_channel_spectrum(
-                blue
-            ),
+            calculate_channel_spectrum(red),
+            calculate_channel_spectrum(green),
+            calculate_channel_spectrum(blue),
         ]
+        titles = ["Red Spectrum", "Green Spectrum", "Blue Spectrum"]
 
+        fig, axes = plt.subplots(1, 3, figsize=(11, 4))
+        fig.patch.set_facecolor("#0A0F19")
 
-        titles = [
-
-            "Red Spectrum",
-
-            "Green Spectrum",
-
-            "Blue Spectrum",
-        ]
-
-
-        # =====================================================
-        # PLOT
-        # =====================================================
-
-        fig, axes = plt.subplots(
-
-            1,
-
-            3,
-
-            figsize=(
-                11,
-                4,
-            ),
-        )
-
-
-        fig.patch.set_facecolor(
-            "#0A0F19"
-        )
-
-
-        for (
-            ax,
-            spectrum,
-            title,
-
-        ) in zip(
-
-            axes,
-
-            spectra,
-
-            titles,
-        ):
-
-            ax.imshow(
-
-                spectrum,
-
-                cmap="gray",
-            )
-
-
-            ax.set_title(
-
-                title,
-
-                color="#F8FAFC",
-
-                weight="bold",
-            )
-
-
-            ax.axis(
-                "off"
-            )
-
+        for ax, spectrum, title in zip(axes, spectra, titles):
+            ax.imshow(spectrum, cmap="gray")
+            ax.set_title(title, color="#F8FAFC", weight="bold")
+            ax.axis("off")
 
         fig.tight_layout()
+        return self._figure_to_png_bytes(fig)
 
-
-        return (
-
-            self._figure_to_png_bytes(
-                fig
-            )
-        )
-
-
-    # =========================================================
-    # FEATURE 12 — RGB FREQUENCY
-    # =========================================================
-
-    async def show_rgb_frequency_spectra(
-        self,
-        e,
-    ):
-
+    async def show_rgb_frequency_spectra(self, e):
         if not self._require_image():
-
             return
 
-
-        self._set_busy(
-
-            True,
-
-            "Computing three channel DFT spectra…",
-        )
-
-
+        self._set_busy(True, "Computing three channel DFT spectra…")
         try:
-
-            plot_bytes = await asyncio.to_thread(
-
-                self._build_rgb_frequency_plot
-            )
-
-
+            plot_bytes = await asyncio.to_thread(self._build_rgb_frequency_plot)
             self._set_processed_bytes(
-
                 plot_bytes,
-
                 "RGB Frequency Content",
-
-                (
-                    "RGB channel spectra "
-                    "generated."
-                ),
+                "RGB channel spectra generated.",
             )
-
-
             self.color_view.show_frequency_status()
-
-
         except Exception as error:
-
-            self._toast(
-
-                f"RGB frequency error: {error}",
-
-                error=True,
-            )
-
-
+            self._toast(f"RGB frequency error: {error}", error=True)
         finally:
+            self._set_busy(False)
 
-            self._set_busy(
-                False
-            )
+    def _build_ycbcr_plot(self):
+        image_array = np.array(self.original_image, dtype=np.uint8)
+        y, cb, cr = rgb_to_ycbcr(image_array)
 
-
-    # =========================================================
-    # FEATURE 12 — BUILD YCBCR
-    # =========================================================
-
-    def _build_ycbcr_plot(
-        self,
-    ):
-
-        image_array = np.array(
-
-            self.original_image,
-
-            dtype=np.uint8,
-        )
-
-
-        # =====================================================
-        # RGB -> YCBCR
-        # =====================================================
-
-        y, cb, cr = rgb_to_ycbcr(
-
-            image_array
-        )
-
-
-        # =====================================================
-        # PLOT
-        # =====================================================
-
-        fig, axes = plt.subplots(
-
-            1,
-
-            3,
-
-            figsize=(
-                11,
-                4,
-            ),
-        )
-
-
-        fig.patch.set_facecolor(
-            "#0A0F19"
-        )
-
-
+        fig, axes = plt.subplots(1, 3, figsize=(11, 4))
+        fig.patch.set_facecolor("#0A0F19")
         titles = [
-
             "Y • Luminance",
-
             "Cb • Blue chroma",
-
             "Cr • Red chroma",
         ]
 
-
-        for (
-            ax,
-            channel,
-            title,
-
-        ) in zip(
-
-            axes,
-
-            [
-                y,
-                cb,
-                cr,
-            ],
-
-            titles,
-        ):
-
-            ax.imshow(
-
-                channel,
-
-                cmap="gray",
-
-                vmin=0,
-
-                vmax=255,
-            )
-
-
-            ax.set_title(
-
-                title,
-
-                color="#F8FAFC",
-
-                weight="bold",
-            )
-
-
-            ax.axis(
-                "off"
-            )
-
+        for ax, channel, title in zip(axes, [y, cb, cr], titles):
+            ax.imshow(channel, cmap="gray", vmin=0, vmax=255)
+            ax.set_title(title, color="#F8FAFC", weight="bold")
+            ax.axis("off")
 
         fig.tight_layout()
+        return self._figure_to_png_bytes(fig), y, cb, cr
 
-
-        return (
-
-            self._figure_to_png_bytes(
-                fig
-            ),
-
-            y,
-
-            cb,
-
-            cr,
-        )
-
-
-    # =========================================================
-    # FEATURE 12 — SHOW YCBCR
-    # =========================================================
-
-    async def show_ycbcr_channels(
-        self,
-        e,
-    ):
-
+    async def show_ycbcr_channels(self, e):
         if not self._require_image():
-
             return
 
-
-        self._set_busy(
-
-            True,
-
-            "Converting RGB to YCbCr…",
-        )
-
-
+        self._set_busy(True, "Converting RGB to YCbCr…")
         try:
-
-            (
-                plot_bytes,
-                y,
-                cb,
-                cr,
-
-            ) = await asyncio.to_thread(
-
+            plot_bytes, y, cb, cr = await asyncio.to_thread(
                 self._build_ycbcr_plot
             )
-
-
-            # =================================================
-            # DISPLAY
-            # =================================================
-
             self._set_processed_bytes(
-
                 plot_bytes,
-
                 "YCbCr Color Space",
-
-                (
-                    "YCbCr components "
-                    "generated."
-                ),
+                "YCbCr components generated.",
             )
 
-
-            # =================================================
-            # STATISTICS
-            # =================================================
-
-            y_stats = (
-                get_channel_statistics(
-                    y
-                )
-            )
-
-
-            cb_stats = (
-                get_channel_statistics(
-                    cb
-                )
-            )
-
-
-            cr_stats = (
-                get_channel_statistics(
-                    cr
-                )
-            )
-
-
-            # =================================================
-            # UPDATE COLOR UI
-            # =================================================
+            y_stats = get_channel_statistics(y)
+            cb_stats = get_channel_statistics(cb)
+            cr_stats = get_channel_statistics(cr)
 
             self.color_view.show_ycbcr_status()
-
-
             self.color_view.mode_description.value = (
-
-                "Y = luminance • "
-                "Cb = blue chroma • "
-                "Cr = red chroma   |   "
+                "Y = luminance • Cb = blue chroma • Cr = red chroma   |   "
                 f"Mean Y: {y_stats['mean']:.1f} • "
                 f"Cb: {cb_stats['mean']:.1f} • "
                 f"Cr: {cr_stats['mean']:.1f}"
             )
-
-
             self.color_view.mode_description.update()
-
-
         except Exception as error:
-
-            self._toast(
-
-                f"YCbCr error: {error}",
-
-                error=True,
-            )
-
-
+            self._toast(f"YCbCr error: {error}", error=True)
         finally:
-
-            self._set_busy(
-                False
-            )
-
+            self._set_busy(False)
 
     # =========================================================
     # MATPLOTLIB -> PNG BYTES
     # =========================================================
 
     @staticmethod
-    def _figure_to_png_bytes(
-        fig,
-    ):
-
+    def _figure_to_png_bytes(fig):
         buffer = BytesIO()
-
-
         fig.savefig(
-
             buffer,
-
             format="png",
-
             dpi=130,
-
             bbox_inches="tight",
-
-            facecolor=(
-                fig.get_facecolor()
-            ),
+            facecolor=fig.get_facecolor(),
         )
-
-
-        plt.close(
-            fig
-        )
-
-
+        plt.close(fig)
         return buffer.getvalue()
