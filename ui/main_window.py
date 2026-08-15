@@ -91,6 +91,10 @@ class ImageProcessorApp:
             on_navigation_change=self._on_sidebar_navigation,
         )
 
+        # Home is a clean full-width landing page.
+        # The sidebar becomes visible only inside feature workspaces.
+        self.sidebar.control.visible = False
+
         self.top_bar = TopBar(
             on_toggle_sidebar=self._toggle_sidebar,
             on_open_image=self.open_image,
@@ -225,9 +229,16 @@ class ImageProcessorApp:
         )
 
         self.page.add(self.root)
-        # Start rotating Explore-the-Lab feature orbit
+
+        # Start in true Home mode:
+        # - no sidebar
+        # - no Save / Reset controls
+        # - hamburger hidden too if the current TopBar supports it
+        self.top_bar.set_home_mode(True)
+
+        # Start rotating Explore-the-Lab feature orbit.
         self.page.run_task(
-        self.home_view.start_orbit_animation
+            self.home_view.start_orbit_animation
         )
 
     # =========================================================
@@ -235,6 +246,10 @@ class ImageProcessorApp:
     # =========================================================
 
     def _toggle_sidebar(self, e):
+        # Home intentionally has no sidebar.
+        if self.current_feature_index == 0:
+            return
+
         self.sidebar.toggle()
 
     def _on_sidebar_navigation(self, index):
@@ -250,25 +265,51 @@ class ImageProcessorApp:
 
         self.current_feature_index = index
         feature_name = self.sidebar.get_feature_name(index)
+        is_home = index == 0
 
-        if index == 0:
-            # True app-style landing page: no editor image cards.
+        # =====================================================
+        # SIDEBAR VISIBILITY
+        # =====================================================
+
+        # Home: no sidebar, full-width landing page.
+        # Features: animated sidebar is restored.
+        self.sidebar.control.visible = not is_home
+
+        # =====================================================
+        # PAGE CONTENT
+        # =====================================================
+
+        if is_home:
             self.page_content.controls = [
                 self.home_view.control,
                 ft.Container(height=10),
             ]
         else:
-            # Processing workspaces show before/after image cards.
             self.page_content.controls = [
                 self.image_workspace,
                 self.feature_views[index],
                 ft.Container(height=10),
             ]
 
-        self.page_content.update()
+        # =====================================================
+        # TOP BAR
+        # =====================================================
+
         self.top_bar.set_active_feature(feature_name)
-        self.top_bar.set_home_mode(index == 0)
-        self._set_status(f"{feature_name} workspace")
+        self.top_bar.set_home_mode(is_home)
+
+        # =====================================================
+        # STATUS
+        # =====================================================
+
+        if is_home:
+            self._set_status("Signal Studio ready")
+        else:
+            self._set_status(f"{feature_name} workspace")
+
+        # A whole-page refresh is intentional here because both
+        # page content and sidebar visibility can change at once.
+        self.page.update()
 
     # =========================================================
     # FILE / IMAGE HELPERS
