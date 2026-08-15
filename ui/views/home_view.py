@@ -10,7 +10,7 @@ HERO_BACKGROUND_IMAGE = "images/Nasa2.jpg"
 
 # Background image used inside Explore the Lab / Round Console.
 # You can use the same image as the Hero or a different one.
-LAB_BACKGROUND_IMAGE = "images/Galaxy1.jpg"
+LAB_BACKGROUND_IMAGE = "images/Nasa2.jpg"
 
 
 class HomeView:
@@ -59,6 +59,20 @@ class HomeView:
         self.hero_glow_left = None
         self.hero_glow_right = None
 
+        # Refined hero interaction / entrance animation state.
+        self._hero_intro_done = False
+        self.hero_copy_panel = None
+        self.hero_visual_panel = None
+        self.hero_status_dot = None
+        self.hero_primary_shell = None
+        self.hero_secondary_shell = None
+        self.session_strip = None
+
+        # Width used by the live scanner/particles inside the hero console.
+        # Keeping it in one place makes the animation responsive to the
+        # redesigned, narrower product-style visual.
+        self._signal_scan_span = 470
+
         self.control = self._build()
 
     # =========================================================
@@ -66,66 +80,68 @@ class HomeView:
     # =========================================================
 
     def _build(self):
+        """Build the Home page as a polished product landing experience."""
+
         self.session_name_text = ft.Text(
             "No active image",
             size=10,
+            weight=ft.FontWeight.W_500,
             color=AppColors.MUTED,
             max_lines=1,
             overflow=ft.TextOverflow.ELLIPSIS,
         )
 
         return ft.Column(
-            spacing=18,
+            spacing=22,
             controls=[
                 self._build_hero(),
                 self._build_explore_lab(),
                 self._build_capability_strip(),
-                ft.Container(height=8),
+                ft.Container(height=10),
             ],
         )
 
-    # =========================================================
-    # HERO — KEPT IN THE SAME STYLE
-    # =========================================================
-
     def _build_hero(self):
         """
-        Premium centered hero.
+        Product-style hero.
 
-        The whole landing message now sits on one visual axis:
-        status -> brand -> title -> subtitle -> actions -> session -> live signal.
-        This gives the Home page a cleaner, more professional application feel.
+        Layout:
+            left  -> clear message, trust/status, CTA, active session
+            right -> interactive live signal preview
+
+        The hero is deliberately less "dashboard-like" and more like a
+        polished software landing page while preserving the galaxy identity.
         """
 
-        ready_badge = ft.Container(
-            padding=ft.Padding.symmetric(
-                horizontal=12,
-                vertical=6,
-            ),
-            bgcolor="#0A1A17",
-            border=ft.Border.all(
-                1,
-                "#17483D",
-            ),
+        # =====================================================
+        # SMALL PRODUCT / STATUS LABELS
+        # =====================================================
+
+        self.hero_status_dot = ft.Container(
+            width=7,
+            height=7,
             border_radius=100,
+            bgcolor=AppColors.GREEN,
             shadow=ft.BoxShadow(
-                blur_radius=12,
-                color="#2234D399",
+                blur_radius=10,
+                color="#6634D399",
             ),
+            animate_scale=ft.Animation(
+                duration=420,
+                curve=ft.AnimationCurve.EASE_IN_OUT,
+            ),
+        )
+
+        ready_badge = ft.Container(
+            padding=ft.Padding.symmetric(horizontal=11, vertical=6),
+            bgcolor="#B20A1716",
+            border=ft.Border.all(1, "#304D463E"),
+            border_radius=100,
             content=ft.Row(
                 tight=True,
                 spacing=7,
                 controls=[
-                    ft.Container(
-                        width=8,
-                        height=8,
-                        bgcolor=AppColors.GREEN,
-                        border_radius=100,
-                        shadow=ft.BoxShadow(
-                            blur_radius=8,
-                            color="#6634D399",
-                        ),
-                    ),
+                    self.hero_status_dot,
                     ft.Text(
                         "SYSTEM READY",
                         size=8,
@@ -136,17 +152,11 @@ class HomeView:
             ),
         )
 
-        eyebrow = ft.Container(
-            padding=ft.Padding.symmetric(
-                horizontal=12,
-                vertical=6,
-            ),
+        product_badge = ft.Container(
+            padding=ft.Padding.symmetric(horizontal=11, vertical=6),
+            bgcolor="#A40B1524",
+            border=ft.Border.all(1, "#3340645E"),
             border_radius=100,
-            bgcolor="#0A1422",
-            border=ft.Border.all(
-                1,
-                "#223552",
-            ),
             content=ft.Row(
                 tight=True,
                 spacing=7,
@@ -157,7 +167,7 @@ class HomeView:
                         color=AppColors.CYAN,
                     ),
                     ft.Text(
-                        "SIGNAL STUDIO",
+                        "CSE 220 • SIGNAL STUDIO",
                         size=8,
                         weight=ft.FontWeight.BOLD,
                         color=AppColors.CYAN_LIGHT,
@@ -166,7 +176,67 @@ class HomeView:
             ),
         )
 
-        start_button = ft.Button(
+        # =====================================================
+        # HERO TYPOGRAPHY
+        # =====================================================
+
+        hero_title = ft.Column(
+            spacing=1,
+            controls=[
+                ft.Text(
+                    "See image processing",
+                    size=42,
+                    weight=ft.FontWeight.BOLD,
+                    color=AppColors.TEXT,
+                    height=1.03,
+                ),
+                ft.Row(
+                    spacing=10,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    controls=[
+                        ft.Text(
+                            "through signals.",
+                            size=42,
+                            weight=ft.FontWeight.BOLD,
+                            color=AppColors.CYAN_LIGHT,
+                            height=1.03,
+                        ),
+                        ft.Container(
+                            width=42,
+                            height=3,
+                            border_radius=3,
+                            gradient=ft.LinearGradient(
+                                begin=ft.Alignment.CENTER_LEFT,
+                                end=ft.Alignment.CENTER_RIGHT,
+                                colors=[
+                                    AppColors.CYAN,
+                                    AppColors.PURPLE,
+                                    AppColors.PINK,
+                                ],
+                            ),
+                        ),
+                    ],
+                ),
+            ],
+        )
+
+        hero_description = ft.Container(
+            width=520,
+            content=ft.Text(
+                "Explore spatial filtering, Fourier-domain editing, compression, "
+                "texture analysis, hybrid imaging and color spaces in one visual "
+                "signal-processing workspace.",
+                size=12,
+                color="#A9B8CC",
+                height=1.62,
+            ),
+        )
+
+        # =====================================================
+        # PRIMARY / SECONDARY ACTIONS
+        # =====================================================
+
+        primary_button = ft.Button(
             content="Start New Session",
             icon=ft.Icons.ADD_PHOTO_ALTERNATE_OUTLINED,
             on_click=self.on_start_session,
@@ -174,193 +244,303 @@ class HomeView:
             color=AppColors.WHITE,
             elevation=0,
             style=ft.ButtonStyle(
-                padding=ft.Padding.symmetric(
-                    horizontal=20,
-                    vertical=14,
-                ),
-                shape=ft.RoundedRectangleBorder(
-                    radius=13,
-                ),
+                padding=ft.Padding.symmetric(horizontal=20, vertical=14),
+                shape=ft.RoundedRectangleBorder(radius=13),
             ),
         )
 
-        browse_button = ft.OutlinedButton(
+        self.hero_primary_shell = ft.Container(
+            border_radius=13,
+            scale=1.0,
+            offset=ft.Offset(0, 0),
+            animate_scale=ft.Animation(
+                duration=190,
+                curve=ft.AnimationCurve.EASE_OUT,
+            ),
+            animate_offset=ft.Animation(
+                duration=190,
+                curve=ft.AnimationCurve.EASE_OUT,
+            ),
+            animate=ft.Animation(
+                duration=190,
+                curve=ft.AnimationCurve.EASE_OUT,
+            ),
+            shadow=ft.BoxShadow(
+                blur_radius=18,
+                color="#302F7BFF",
+                offset=ft.Offset(0, 7),
+            ),
+            on_hover=self._hover_primary_action,
+            content=primary_button,
+        )
+
+        secondary_button = ft.OutlinedButton(
             content="Browse Image",
             icon=ft.Icons.FOLDER_OPEN,
             on_click=self.on_open_image,
             style=ft.ButtonStyle(
                 color=AppColors.CYAN_LIGHT,
-                padding=ft.Padding.symmetric(
-                    horizontal=20,
-                    vertical=14,
-                ),
-                shape=ft.RoundedRectangleBorder(
-                    radius=13,
-                ),
-                side=ft.BorderSide(
-                    1,
-                    AppColors.BORDER_LIGHT,
-                ),
+                padding=ft.Padding.symmetric(horizontal=20, vertical=14),
+                shape=ft.RoundedRectangleBorder(radius=13),
+                side=ft.BorderSide(1, "#43536C"),
             ),
         )
 
-        session_strip = ft.Container(
-            width=470,
-            padding=ft.Padding.symmetric(
-                horizontal=14,
-                vertical=10,
+        self.hero_secondary_shell = ft.Container(
+            border_radius=13,
+            scale=1.0,
+            offset=ft.Offset(0, 0),
+            animate_scale=ft.Animation(
+                duration=190,
+                curve=ft.AnimationCurve.EASE_OUT,
             ),
-            bgcolor="#0A111C",
-            border=ft.Border.all(
-                1,
-                AppColors.BORDER_SOFT,
+            animate_offset=ft.Animation(
+                duration=190,
+                curve=ft.AnimationCurve.EASE_OUT,
             ),
-            border_radius=12,
+            animate=ft.Animation(
+                duration=190,
+                curve=ft.AnimationCurve.EASE_OUT,
+            ),
+            on_hover=self._hover_secondary_action,
+            content=secondary_button,
+        )
+
+        # =====================================================
+        # CURRENT SESSION CARD
+        # =====================================================
+
+        self.session_strip = ft.Container(
+            width=520,
+            padding=ft.Padding.symmetric(horizontal=13, vertical=11),
+            bgcolor="#9A0A111C",
+            border=ft.Border.all(1, "#2B3A4E"),
+            border_radius=14,
+            animate=ft.Animation(
+                duration=180,
+                curve=ft.AnimationCurve.EASE_OUT,
+            ),
+            animate_scale=ft.Animation(
+                duration=180,
+                curve=ft.AnimationCurve.EASE_OUT,
+            ),
+            on_hover=self._hover_session_strip,
             content=ft.Row(
-                alignment=ft.MainAxisAlignment.CENTER,
-                spacing=9,
+                spacing=10,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 controls=[
-                    ft.Icon(
-                        ft.Icons.INSERT_PHOTO_OUTLINED,
-                        size=15,
-                        color=AppColors.MUTED_2,
+                    ft.Container(
+                        width=34,
+                        height=34,
+                        alignment=ft.Alignment.CENTER,
+                        border_radius=10,
+                        bgcolor="#101C2B",
+                        border=ft.Border.all(1, "#2D4058"),
+                        content=ft.Icon(
+                            ft.Icons.INSERT_PHOTO_OUTLINED,
+                            size=16,
+                            color=AppColors.CYAN,
+                        ),
                     ),
-                    ft.Text(
-                        "CURRENT SESSION",
-                        size=8,
-                        weight=ft.FontWeight.BOLD,
-                        color=AppColors.MUTED_2,
+                    ft.Column(
+                        spacing=1,
+                        expand=True,
+                        controls=[
+                            ft.Text(
+                                "CURRENT SESSION",
+                                size=7,
+                                weight=ft.FontWeight.BOLD,
+                                color=AppColors.MUTED_2,
+                            ),
+                            self.session_name_text,
+                        ],
                     ),
                     ft.Container(
-                        width=1,
-                        height=18,
-                        bgcolor=AppColors.BORDER_SOFT,
+                        padding=ft.Padding.symmetric(horizontal=9, vertical=5),
+                        border_radius=100,
+                        bgcolor="#0B1824",
+                        content=ft.Text(
+                            "PNG • JPG • BMP • TIFF",
+                            size=7,
+                            weight=ft.FontWeight.W_600,
+                            color=AppColors.MUTED,
+                        ),
                     ),
-                    self.session_name_text,
                 ],
             ),
         )
 
-        # Decorative centered accent line below the title.
-        accent_line = ft.Row(
-            alignment=ft.MainAxisAlignment.CENTER,
-            spacing=7,
+        # =====================================================
+        # QUICK VALUE PROPS
+        # =====================================================
+
+        value_row = ft.Row(
+            spacing=9,
+            wrap=True,
             controls=[
-                ft.Container(
-                    width=30,
-                    height=3,
-                    border_radius=3,
-                    bgcolor=AppColors.CYAN,
-                    opacity=0.8,
+                self._hero_value_chip(
+                    ft.Icons.GRID_ON_OUTLINED,
+                    "12 DSP tools",
+                    AppColors.CYAN,
                 ),
-                ft.Container(
-                    width=56,
-                    height=3,
-                    border_radius=3,
-                    gradient=ft.LinearGradient(
-                        begin=ft.Alignment.CENTER_LEFT,
-                        end=ft.Alignment.CENTER_RIGHT,
-                        colors=[
-                            AppColors.CYAN,
-                            AppColors.PURPLE,
-                            AppColors.PINK,
+                self._hero_value_chip(
+                    ft.Icons.FUNCTIONS,
+                    "Manual 2D DFT",
+                    AppColors.PURPLE,
+                ),
+                self._hero_value_chip(
+                    ft.Icons.INSIGHTS_OUTLINED,
+                    "PSNR metrics",
+                    AppColors.GREEN,
+                ),
+            ],
+        )
+
+        # =====================================================
+        # LEFT HERO COPY
+        # =====================================================
+
+        self.hero_copy_panel = ft.Container(
+            col={"xs": 12, "lg": 6},
+            opacity=0,
+            offset=ft.Offset(-0.025, 0),
+            animate_opacity=ft.Animation(
+                duration=650,
+                curve=ft.AnimationCurve.EASE_OUT,
+            ),
+            animate_offset=ft.Animation(
+                duration=650,
+                curve=ft.AnimationCurve.EASE_OUT,
+            ),
+            content=ft.Column(
+                spacing=18,
+                horizontal_alignment=ft.CrossAxisAlignment.START,
+                controls=[
+                    ft.Row(
+                        spacing=8,
+                        wrap=True,
+                        controls=[
+                            product_badge,
+                            ready_badge,
                         ],
                     ),
-                ),
-                ft.Container(
-                    width=30,
-                    height=3,
-                    border_radius=3,
-                    bgcolor=AppColors.PINK,
-                    opacity=0.8,
-                ),
-            ],
+                    hero_title,
+                    hero_description,
+                    value_row,
+                    ft.Row(
+                        spacing=10,
+                        wrap=True,
+                        controls=[
+                            self.hero_primary_shell,
+                            self.hero_secondary_shell,
+                        ],
+                    ),
+                    self.session_strip,
+                ],
+            ),
         )
 
-        center_content = ft.Column(
-            spacing=14,
-            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+        # =====================================================
+        # RIGHT HERO VISUAL
+        # =====================================================
+
+        visual_top_label = ft.Row(
             controls=[
-                ft.Row(
-                    alignment=ft.MainAxisAlignment.CENTER,
-                    spacing=8,
+                ft.Column(
+                    spacing=1,
+                    expand=True,
                     controls=[
-                        ready_badge,
-                        eyebrow,
+                        ft.Text(
+                            "LIVE PROCESSING PREVIEW",
+                            size=8,
+                            weight=ft.FontWeight.BOLD,
+                            color=AppColors.CYAN_LIGHT,
+                        ),
+                        ft.Text(
+                            "Interactive signal visualization",
+                            size=9,
+                            color=AppColors.MUTED,
+                        ),
                     ],
                 ),
-
-                ft.Text(
-                    "Image Signal Processor & Editor",
-                    size=40,
-                    weight=ft.FontWeight.BOLD,
-                    color=AppColors.TEXT,
-                    text_align=ft.TextAlign.CENTER,
-                    height=1.05,
-                ),
-
-                accent_line,
-
                 ft.Container(
-                    width=690,
+                    padding=ft.Padding.symmetric(horizontal=9, vertical=5),
+                    border_radius=100,
+                    bgcolor="#0A1A17",
+                    border=ft.Border.all(1, "#1D493D"),
                     content=ft.Text(
-                        "A focused visual laboratory for spatial filtering, Fourier analysis, "
-                        "compression, texture inspection, hybrid imaging and color-space exploration.",
-                        size=12,
-                        color=AppColors.MUTED,
-                        text_align=ft.TextAlign.CENTER,
-                        height=1.55,
+                        "REAL-TIME",
+                        size=7,
+                        weight=ft.FontWeight.BOLD,
+                        color=AppColors.GREEN_LIGHT,
                     ),
                 ),
-
-                ft.Row(
-                    alignment=ft.MainAxisAlignment.CENTER,
-                    spacing=10,
-                    controls=[
-                        start_button,
-                        browse_button,
-                    ],
-                ),
-
-                session_strip,
-
-                ft.Container(height=4),
-
-                # Centered live signal workspace.
-                self._build_signal_console(),
             ],
         )
 
-        # Subtle animated ambient light for depth.
+        self.hero_visual_panel = ft.Container(
+            col={"xs": 12, "lg": 6},
+            opacity=0,
+            offset=ft.Offset(0.025, 0),
+            animate_opacity=ft.Animation(
+                duration=720,
+                curve=ft.AnimationCurve.EASE_OUT,
+            ),
+            animate_offset=ft.Animation(
+                duration=720,
+                curve=ft.AnimationCurve.EASE_OUT,
+            ),
+            padding=ft.Padding.all(16),
+            border_radius=22,
+            bgcolor="#62070C15",
+            border=ft.Border.all(1, "#31425B"),
+            shadow=ft.BoxShadow(
+                blur_radius=30,
+                color="#2A000000",
+                offset=ft.Offset(0, 12),
+            ),
+            content=ft.Column(
+                spacing=12,
+                controls=[
+                    visual_top_label,
+                    self._build_signal_console(),
+                ],
+            ),
+        )
+
+        # =====================================================
+        # AMBIENT HERO LIGHT
+        # =====================================================
+
         self.hero_glow_left = ft.Container(
-            left=40,
-            top=40,
-            width=120,
-            height=120,
-            border_radius=60,
-            bgcolor="#101B3155",
-            blur=35,
-            opacity=0.55,
+            left=-45,
+            top=30,
+            width=220,
+            height=220,
+            border_radius=110,
+            bgcolor="#13213B66",
+            blur=55,
+            opacity=0.45,
             scale=1.0,
             animate_scale=ft.Animation(
-                duration=900,
+                duration=1000,
                 curve=ft.AnimationCurve.EASE_IN_OUT,
             ),
             animate_opacity=ft.Animation(
-                duration=900,
+                duration=1000,
                 curve=ft.AnimationCurve.EASE_IN_OUT,
             ),
         )
 
         self.hero_glow_right = ft.Container(
-            right=55,
-            bottom=35,
-            width=150,
-            height=150,
-            border_radius=75,
-            bgcolor="#25143555",
-            blur=42,
-            opacity=0.50,
+            right=-35,
+            bottom=-30,
+            width=260,
+            height=260,
+            border_radius=130,
+            bgcolor="#28163E66",
+            blur=60,
+            opacity=0.38,
             scale=1.0,
             animate_scale=ft.Animation(
                 duration=1100,
@@ -372,48 +552,32 @@ class HomeView:
             ),
         )
 
-        hero_background = ft.Stack(
-            expand=True,
+        hero_layout = ft.ResponsiveRow(
+            spacing=26,
+            run_spacing=24,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
             controls=[
-                self.hero_glow_left,
-                self.hero_glow_right,
-                ft.Container(
-                    left=0,
-                    right=0,
-                    top=0,
-                    bottom=0,
-                    alignment=ft.Alignment.CENTER,
-                    padding=ft.Padding.symmetric(
-                        horizontal=28,
-                        vertical=26,
-                    ),
-                    content=center_content,
-                ),
+                self.hero_copy_panel,
+                self.hero_visual_panel,
             ],
         )
 
-        # Galaxy image is used only behind the top Hero card.
-        # Everything interactive remains layered above it.
+        # =====================================================
+        # COMPLETE HERO
+        # =====================================================
+
         return ft.Container(
-            height=650,
-            border_radius=ft.BorderRadius.all(26),
-            border=ft.Border.all(
-                1,
-                "#304465",
-            ),
+            border_radius=ft.BorderRadius.all(28),
+            border=ft.Border.all(1, "#344760"),
             shadow=ft.BoxShadow(
-                blur_radius=38,
+                blur_radius=42,
                 spread_radius=0,
-                color="#36000000",
-                offset=ft.Offset(0, 14),
+                color="#3A000000",
+                offset=ft.Offset(0, 16),
             ),
             clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
             content=ft.Stack(
-                expand=True,
                 controls=[
-                    # =================================================
-                    # 1. GALAXY BACKGROUND IMAGE
-                    # =================================================
                     ft.Image(
                         src=HERO_BACKGROUND_IMAGE,
                         left=0,
@@ -423,34 +587,25 @@ class HomeView:
                         fit=ft.BoxFit.COVER,
                     ),
 
-                    # =================================================
-                    # 2. DARK GLASS OVERLAY
-                    #
-                    # Keeps text and controls readable without hiding
-                    # the galaxy.
-                    # =================================================
+                    # Readability layer: dark on the left, slightly clearer
+                    # around the product preview on the right.
                     ft.Container(
                         left=0,
                         right=0,
                         top=0,
                         bottom=0,
                         gradient=ft.LinearGradient(
-                            begin=ft.Alignment.TOP_CENTER,
-                            end=ft.Alignment.BOTTOM_CENTER,
+                            begin=ft.Alignment.CENTER_LEFT,
+                            end=ft.Alignment.CENTER_RIGHT,
                             colors=[
-                                "#B8060B13",
-                                "#92080F1B",
-                                "#B60A0D19",
+                                "#EA060A12",
+                                "#C7080D18",
+                                "#A8090E19",
+                                "#C0070B13",
                             ],
                         ),
                     ),
 
-                    # =================================================
-                    # 3. SOFT VIGNETTE
-                    #
-                    # Darkens the outside edges and keeps attention in
-                    # the middle of the Hero.
-                    # =================================================
                     ft.Container(
                         left=0,
                         right=0,
@@ -460,54 +615,47 @@ class HomeView:
                             center=ft.Alignment.CENTER,
                             radius=1.05,
                             colors=[
-                                "#08000000",
-                                "#28070B13",
-                                "#78050A12",
+                                "#05000000",
+                                "#24080D18",
+                                "#81050A12",
                             ],
                         ),
                     ),
 
-                    # =================================================
-                    # 4. EXISTING ANIMATED HERO CONTENT
-                    #
-                    # This keeps all your existing animation:
-                    # - flowing waveform
-                    # - scanner
-                    # - particles
-                    # - LIVE pulse
-                    # - interactive Signal Workspace
-                    # - animated ambient glows
-                    # =================================================
+                    self.hero_glow_left,
+                    self.hero_glow_right,
+
                     ft.Container(
-                        left=0,
-                        right=0,
+                        padding=ft.Padding.symmetric(
+                            horizontal=34,
+                            vertical=32,
+                        ),
+                        content=hero_layout,
+                    ),
+
+                    # Fine top highlight gives the card a premium glass edge.
+                    ft.Container(
+                        left=28,
+                        right=28,
                         top=0,
-                        bottom=0,
-                        content=hero_background,
+                        height=1,
+                        gradient=ft.LinearGradient(
+                            begin=ft.Alignment.CENTER_LEFT,
+                            end=ft.Alignment.CENTER_RIGHT,
+                            colors=[
+                                "#0022D3EE",
+                                "#6622D3EE",
+                                "#448B5CF6",
+                                "#00EC4899",
+                            ],
+                        ),
                     ),
                 ],
             ),
         )
 
-    # =========================================================
-    # SIGNAL CONSOLE VISUAL — UNCHANGED STYLE
-    # =========================================================
-
     def _build_signal_console(self):
-        """
-        Interactive animated hero visualization.
-
-        Visual behavior:
-        - waveform bars continuously flow like a live signal
-        - a cyan scan line sweeps across the display
-        - LIVE indicator gently pulses
-        - hover enlarges the whole console and strengthens the glow
-        - clicking the console opens the Frequency workspace
-        """
-
-        # -----------------------------------------------------
-        # LIVE INDICATOR
-        # -----------------------------------------------------
+        """Build the interactive live signal visual used inside the hero."""
 
         self.signal_live_dot = ft.Container(
             width=7,
@@ -536,17 +684,13 @@ class HomeView:
                     self.signal_live_dot,
                     ft.Text(
                         "LIVE",
-                        size=8,
+                        size=7,
                         weight=ft.FontWeight.BOLD,
                         color=AppColors.GREEN_LIGHT,
                     ),
                 ],
             ),
         )
-
-        # -----------------------------------------------------
-        # FLOWING WAVEFORM BARS
-        # -----------------------------------------------------
 
         self._signal_bars = []
 
@@ -569,34 +713,34 @@ class HomeView:
         ]
 
         initial_heights = [
-            32, 48, 70, 54, 92,
-            65, 41, 77, 58, 96,
-            72, 45, 81, 62, 38,
+            26, 42, 62, 48, 78,
+            57, 36, 69, 51, 82,
+            64, 40, 72, 55, 32,
         ]
 
         for index, height in enumerate(initial_heights):
             bar = ft.Container(
-                width=10,
+                width=8,
                 height=height,
-                border_radius=6,
+                border_radius=5,
                 gradient=ft.LinearGradient(
                     begin=ft.Alignment.TOP_CENTER,
                     end=ft.Alignment.BOTTOM_CENTER,
                     colors=[
                         bar_colors[index],
-                        "#382A3B58",
+                        "#26293D58",
                     ],
                 ),
                 shadow=ft.BoxShadow(
-                    blur_radius=8,
-                    color=f"33{bar_colors[index][1:]}",
+                    blur_radius=7,
+                    color=f"2A{bar_colors[index][1:]}",
                 ),
                 animate_size=ft.Animation(
-                    duration=115,
+                    duration=105,
                     curve=ft.AnimationCurve.EASE_IN_OUT,
                 ),
                 animate_opacity=ft.Animation(
-                    duration=115,
+                    duration=105,
                     curve=ft.AnimationCurve.EASE_IN_OUT,
                 ),
             )
@@ -605,13 +749,9 @@ class HomeView:
         waveform_row = ft.Row(
             alignment=ft.MainAxisAlignment.CENTER,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            spacing=12,
+            spacing=10,
             controls=self._signal_bars,
         )
-
-        # -----------------------------------------------------
-        # SCAN LINE
-        # -----------------------------------------------------
 
         self.signal_scan_line = ft.Container(
             left=8,
@@ -624,7 +764,7 @@ class HomeView:
                 end=ft.Alignment.BOTTOM_CENTER,
                 colors=[
                     "#0022D3EE",
-                    "#AA22D3EE",
+                    "#B822D3EE",
                     "#0022D3EE",
                 ],
             ),
@@ -633,7 +773,7 @@ class HomeView:
                 color="#6622D3EE",
             ),
             animate_position=ft.Animation(
-                duration=105,
+                duration=95,
                 curve=ft.AnimationCurve.LINEAR,
             ),
         )
@@ -645,10 +785,7 @@ class HomeView:
             color=AppColors.CYAN_LIGHT,
         )
 
-        # Tiny moving particles make the signal display feel continuous,
-        # while remaining visually subtle.
         self._signal_particles = []
-
         particle_colors = [
             AppColors.CYAN,
             AppColors.PURPLE,
@@ -658,27 +795,26 @@ class HomeView:
 
         for index, particle_color in enumerate(particle_colors):
             particle = ft.Container(
-                left=22 + index * 105,
-                top=18 + index * 22,
-                width=5 if index % 2 == 0 else 4,
-                height=5 if index % 2 == 0 else 4,
+                left=18 + index * 90,
+                top=16 + index * 18,
+                width=4,
+                height=4,
                 border_radius=100,
                 bgcolor=particle_color,
-                opacity=0.45,
+                opacity=0.42,
                 shadow=ft.BoxShadow(
                     blur_radius=8,
                     color=f"55{particle_color[1:]}",
                 ),
                 animate_position=ft.Animation(
-                    duration=120,
+                    duration=105,
                     curve=ft.AnimationCurve.LINEAR,
                 ),
                 animate_opacity=ft.Animation(
-                    duration=120,
+                    duration=105,
                     curve=ft.AnimationCurve.EASE_IN_OUT,
                 ),
             )
-
             self._signal_particles.append(particle)
 
         signal_grid = ft.Container(
@@ -688,33 +824,28 @@ class HomeView:
             content=ft.Stack(
                 expand=True,
                 controls=[
-                    # Subtle horizontal guide lines.
                     ft.Container(
-                        top=25,
+                        top=23,
                         left=0,
                         right=0,
                         height=1,
-                        bgcolor="#192A405F",
+                        bgcolor="#15243A58",
                     ),
                     ft.Container(
-                        top=55,
+                        top=50,
                         left=0,
                         right=0,
                         height=1,
-                        bgcolor="#192A405F",
+                        bgcolor="#15243A58",
                     ),
                     ft.Container(
-                        top=85,
+                        top=77,
                         left=0,
                         right=0,
                         height=1,
-                        bgcolor="#192A405F",
+                        bgcolor="#15243A58",
                     ),
-
-                    # Floating signal-energy particles.
                     *self._signal_particles,
-
-                    # Main waveform.
                     ft.Container(
                         left=0,
                         right=0,
@@ -723,11 +854,7 @@ class HomeView:
                         alignment=ft.Alignment.CENTER,
                         content=waveform_row,
                     ),
-
-                    # Moving scanner.
                     self.signal_scan_line,
-
-                    # Floating label.
                     ft.Container(
                         left=8,
                         bottom=5,
@@ -736,7 +863,7 @@ class HomeView:
                             vertical=3,
                         ),
                         border_radius=100,
-                        bgcolor="#B0070B13",
+                        bgcolor="#C0070B13",
                         content=self.signal_frequency_text,
                     ),
                 ],
@@ -746,78 +873,87 @@ class HomeView:
         self.signal_wave_area = ft.Container(
             expand=True,
             alignment=ft.Alignment.CENTER,
-            bgcolor="#070B13",
-            border=ft.Border.all(1, AppColors.BORDER_SOFT),
-            border_radius=16,
+            bgcolor="#D4070B13",
+            border=ft.Border.all(1, "#2A3B53"),
+            border_radius=15,
             content=signal_grid,
         )
 
-        # -----------------------------------------------------
-        # FULL CONSOLE
-        # -----------------------------------------------------
-
         self.signal_console = ft.Container(
-            width=660,
-            height=280,
-            padding=20,
-            border_radius=ft.BorderRadius.all(22),
-            border=ft.Border.all(1, "#34435F"),
+            height=270,
+            padding=16,
+            border_radius=18,
+            border=ft.Border.all(1, "#34455E"),
             gradient=ft.LinearGradient(
                 begin=ft.Alignment.TOP_LEFT,
                 end=ft.Alignment.BOTTOM_RIGHT,
-                colors=["#0B1525", "#12172B", "#21152D"],
+                colors=[
+                    "#D00A1422",
+                    "#CE11172B",
+                    "#D0171127",
+                ],
             ),
             shadow=ft.BoxShadow(
-                blur_radius=20,
-                spread_radius=0,
-                color="#22000000",
+                blur_radius=22,
+                color="#28000000",
+                offset=ft.Offset(0, 8),
             ),
             ink=True,
             on_click=lambda e: self._navigate(1),
             offset=ft.Offset(0, 0),
+            scale=1.0,
             animate_offset=ft.Animation(
-                duration=190,
+                duration=210,
                 curve=ft.AnimationCurve.EASE_OUT,
             ),
             animate_scale=ft.Animation(
-                duration=190,
+                duration=210,
+                curve=ft.AnimationCurve.EASE_OUT,
+            ),
+            animate=ft.Animation(
+                duration=210,
                 curve=ft.AnimationCurve.EASE_OUT,
             ),
             on_hover=self._hover_signal_console,
             content=ft.Column(
-                spacing=15,
+                spacing=12,
                 controls=[
                     ft.Row(
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
                         controls=[
                             ft.Container(
-                                width=44,
-                                height=44,
+                                width=38,
+                                height=38,
                                 alignment=ft.Alignment.CENTER,
-                                border_radius=14,
+                                border_radius=12,
                                 gradient=ft.LinearGradient(
                                     begin=ft.Alignment.TOP_LEFT,
                                     end=ft.Alignment.BOTTOM_RIGHT,
-                                    colors=[AppColors.CYAN, AppColors.PURPLE],
+                                    colors=[
+                                        AppColors.CYAN,
+                                        AppColors.PURPLE,
+                                    ],
                                 ),
                                 content=ft.Icon(
                                     ft.Icons.WAVES,
-                                    size=24,
+                                    size=21,
                                     color=AppColors.BLACK,
                                 ),
                             ),
+                            ft.Container(width=10),
                             ft.Column(
                                 spacing=1,
                                 expand=True,
                                 controls=[
                                     ft.Text(
                                         "SIGNAL WORKSPACE",
-                                        size=10,
+                                        size=9,
                                         weight=ft.FontWeight.BOLD,
-                                        color=AppColors.CYAN_LIGHT,
+                                        color=AppColors.TEXT,
                                     ),
                                     ft.Text(
                                         "Spatial • Frequency • Restoration",
-                                        size=9,
+                                        size=8,
                                         color=AppColors.MUTED,
                                     ),
                                 ],
@@ -825,17 +961,18 @@ class HomeView:
                             live_badge,
                         ],
                     ),
-
                     self.signal_wave_area,
-
                     ft.Row(
+                        spacing=0,
                         controls=[
                             self._mini_console_metric(
                                 "2D", "SIGNALS", AppColors.CYAN
                             ),
+                            self._mini_metric_divider(),
                             self._mini_console_metric(
                                 "DFT", "DOMAIN", AppColors.PURPLE
                             ),
+                            self._mini_metric_divider(),
                             self._mini_console_metric(
                                 "PSNR", "QUALITY", AppColors.GREEN
                             ),
@@ -850,19 +987,20 @@ class HomeView:
     def _mini_console_metric(self, value, label, accent):
         return ft.Container(
             expand=True,
+            padding=ft.Padding.symmetric(vertical=3),
             content=ft.Column(
                 spacing=1,
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 controls=[
                     ft.Text(
                         value,
-                        size=13,
+                        size=12,
                         weight=ft.FontWeight.BOLD,
                         color=accent,
                     ),
                     ft.Text(
                         label,
-                        size=7,
+                        size=6,
                         weight=ft.FontWeight.BOLD,
                         color=AppColors.MUTED_2,
                     ),
@@ -870,9 +1008,80 @@ class HomeView:
             ),
         )
 
-    # =========================================================
-    # EXPLORE THE LAB — ROUND ORBITAL INTERFACE
-    # =========================================================
+    def _mini_metric_divider(self):
+        return ft.Container(
+            width=1,
+            height=24,
+            bgcolor="#293A50",
+        )
+
+    def _hero_value_chip(self, icon, text, accent):
+        return ft.Container(
+            padding=ft.Padding.symmetric(horizontal=10, vertical=7),
+            border_radius=11,
+            bgcolor="#780A121E",
+            border=ft.Border.all(1, "#293B52"),
+            content=ft.Row(
+                tight=True,
+                spacing=7,
+                controls=[
+                    ft.Icon(icon, size=13, color=accent),
+                    ft.Text(
+                        text,
+                        size=8,
+                        weight=ft.FontWeight.W_600,
+                        color="#C4D0DE",
+                    ),
+                ],
+            ),
+        )
+
+    def _hover_primary_action(self, e):
+        hovered = self._is_hovered(e.data)
+
+        e.control.scale = 1.025 if hovered else 1.0
+        e.control.offset = (
+            ft.Offset(0, -0.025)
+            if hovered
+            else ft.Offset(0, 0)
+        )
+        e.control.shadow = (
+            ft.BoxShadow(
+                blur_radius=28,
+                spread_radius=1,
+                color="#4A2F7BFF",
+                offset=ft.Offset(0, 10),
+            )
+            if hovered
+            else ft.BoxShadow(
+                blur_radius=18,
+                color="#302F7BFF",
+                offset=ft.Offset(0, 7),
+            )
+        )
+        e.control.update()
+
+    def _hover_secondary_action(self, e):
+        hovered = self._is_hovered(e.data)
+
+        e.control.scale = 1.02 if hovered else 1.0
+        e.control.offset = (
+            ft.Offset(0, -0.02)
+            if hovered
+            else ft.Offset(0, 0)
+        )
+        e.control.update()
+
+    def _hover_session_strip(self, e):
+        hovered = self._is_hovered(e.data)
+
+        e.control.scale = 1.008 if hovered else 1.0
+        e.control.bgcolor = "#B10D1724" if hovered else "#9A0A111C"
+        e.control.border = ft.Border.all(
+            1,
+            "#3A5675" if hovered else "#2B3A4E",
+        )
+        e.control.update()
 
     def _build_explore_lab(self):
         header = ft.Row(
@@ -1502,62 +1711,90 @@ class HomeView:
     # =========================================================
 
     def _build_capability_strip(self):
+        """Compact product-proof strip below the orbital section."""
+
+        specs = [
+            ("12", "DSP FEATURES", ft.Icons.DASHBOARD_OUTLINED, AppColors.CYAN),
+            ("2D", "MANUAL DFT", ft.Icons.FUNCTIONS, AppColors.PURPLE),
+            ("PSNR", "QUALITY", ft.Icons.INSIGHTS_OUTLINED, AppColors.GREEN),
+            ("RGB", "CHANNELS", ft.Icons.PALETTE_OUTLINED, AppColors.RED),
+            ("YCbCr", "COLOR SPACE", ft.Icons.COLOR_LENS_OUTLINED, AppColors.ORANGE),
+            ("LIVE", "PREVIEW", ft.Icons.VISIBILITY_OUTLINED, AppColors.PINK),
+        ]
+
         return ft.Container(
-            padding=ft.Padding.symmetric(horizontal=18, vertical=14),
-            bgcolor="#090E17",
+            padding=ft.Padding.all(10),
+            bgcolor="#8E080D15",
             border=ft.Border.all(1, AppColors.BORDER),
-            border_radius=ft.BorderRadius.all(17),
-            content=ft.Row(
+            border_radius=ft.BorderRadius.all(18),
+            content=ft.ResponsiveRow(
+                spacing=8,
+                run_spacing=8,
                 controls=[
-                    self._capability("12", "DSP FEATURES", AppColors.CYAN),
-                    self._separator(),
-                    self._capability("2D", "MANUAL DFT", AppColors.PURPLE),
-                    self._separator(),
-                    self._capability("PSNR", "QUALITY", AppColors.GREEN),
-                    self._separator(),
-                    self._capability("RGB", "CHANNELS", AppColors.RED),
-                    self._separator(),
-                    self._capability("YCbCr", "COLOR SPACE", AppColors.ORANGE),
-                    self._separator(),
-                    self._capability("LIVE", "PREVIEW", AppColors.PINK),
+                    ft.Container(
+                        col={"xs": 6, "sm": 4, "md": 2},
+                        content=self._capability(
+                            value,
+                            label,
+                            icon,
+                            accent,
+                        ),
+                    )
+                    for value, label, icon, accent in specs
                 ],
             ),
         )
 
-    def _capability(self, value, label, accent):
+    def _capability(self, value, label, icon, accent):
         return ft.Container(
-            expand=True,
-            content=ft.Column(
-                spacing=1,
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            padding=ft.Padding.symmetric(horizontal=10, vertical=10),
+            border_radius=13,
+            bgcolor="#620B121D",
+            border=ft.Border.all(1, "#243348"),
+            content=ft.Row(
+                spacing=9,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 controls=[
-                    ft.Text(
-                        value,
-                        size=15,
-                        weight=ft.FontWeight.BOLD,
-                        color=accent,
+                    ft.Container(
+                        width=30,
+                        height=30,
+                        alignment=ft.Alignment.CENTER,
+                        border_radius=9,
+                        bgcolor=f"18{accent[1:]}",
+                        content=ft.Icon(
+                            icon,
+                            size=14,
+                            color=accent,
+                        ),
                     ),
-                    ft.Text(
-                        label,
-                        size=7,
-                        weight=ft.FontWeight.BOLD,
-                        color=AppColors.MUTED,
-                        text_align=ft.TextAlign.CENTER,
+                    ft.Column(
+                        spacing=0,
+                        controls=[
+                            ft.Text(
+                                value,
+                                size=11,
+                                weight=ft.FontWeight.BOLD,
+                                color=accent,
+                            ),
+                            ft.Text(
+                                label,
+                                size=6,
+                                weight=ft.FontWeight.BOLD,
+                                color=AppColors.MUTED,
+                            ),
+                        ],
                     ),
                 ],
             ),
         )
 
     def _separator(self):
+        # Retained for backwards compatibility with older view code.
         return ft.Container(
             width=1,
-            height=32,
+            height=28,
             bgcolor=AppColors.BORDER,
         )
-
-    # =========================================================
-    # PUBLIC SESSION STATE
-    # =========================================================
 
     def set_session_name(self, image_name, refresh=True):
         self.session_name_text.value = image_name
@@ -1642,6 +1879,32 @@ class HomeView:
             return
 
         self._orbit_running = True
+
+        # Smooth hero entrance. main_window.py starts this task only after
+        # the page has been mounted, so the transition is visible instead
+        # of appearing already completed.
+        if not self._hero_intro_done:
+            self._hero_intro_done = True
+
+            if self.hero_copy_panel is not None:
+                self.hero_copy_panel.opacity = 1
+                self.hero_copy_panel.offset = ft.Offset(0, 0)
+
+            if self.hero_visual_panel is not None:
+                self.hero_visual_panel.opacity = 1
+                self.hero_visual_panel.offset = ft.Offset(0, 0)
+
+            try:
+                if self.hero_copy_panel is not None:
+                    self.hero_copy_panel.update()
+
+                # Tiny stagger makes the entrance feel more natural.
+                await asyncio.sleep(0.08)
+
+                if self.hero_visual_panel is not None:
+                    self.hero_visual_panel.update()
+            except Exception:
+                pass
 
         center_x = 820 / 2
         center_y = 500 / 2
@@ -1791,7 +2054,7 @@ class HomeView:
                                 self._signal_scan_phase
                                 / 100.0
                             )
-                            * 585
+                            * self._signal_scan_span
                         )
 
                     # Moving energy particles.
@@ -1807,7 +2070,7 @@ class HomeView:
                         ) / 100.0
 
                         particle.left = (
-                            14 + progress * 575
+                            14 + progress * (self._signal_scan_span - 10)
                         )
 
                         particle.top = (
@@ -1854,6 +2117,23 @@ class HomeView:
 
                         self.signal_live_dot.scale = (
                             0.86 + live_wave * 0.52
+                        )
+
+                    # Hero readiness indicator breathes more slowly than
+                    # the LIVE signal so the page stays calm.
+                    if self.hero_status_dot is not None:
+                        self.hero_status_dot.scale = (
+                            0.92
+                            + 0.16
+                            * (
+                                0.5
+                                + 0.5
+                                * math.sin(
+                                    math.radians(
+                                        self._signal_phase * 0.72
+                                    )
+                                )
+                            )
                         )
 
                     # Slow ambient hero light movement.
@@ -1913,52 +2193,35 @@ class HomeView:
         self._signal_hovered = hovered
 
         if hovered:
-            # Lift the console very slightly and make the live signal more
-            # energetic. The animation loop also increases wave/scan speed.
-            e.control.scale = 1.018
+            e.control.scale = 1.012
             e.control.offset = ft.Offset(0, -0.012)
-
-            e.control.border = ft.Border.all(
-                1.5,
-                AppColors.CYAN,
-            )
-
+            e.control.border = ft.Border.all(1.4, AppColors.CYAN)
             e.control.shadow = ft.BoxShadow(
-                blur_radius=34,
+                blur_radius=30,
                 spread_radius=1,
-                color="#4822D3EE",
+                color="#3922D3EE",
                 offset=ft.Offset(0, 10),
             )
 
             if self.signal_frequency_text is not None:
                 self.signal_frequency_text.value = (
-                    "INTERACTIVE SIGNAL • CLICK TO OPEN FREQUENCY LAB  →"
+                    "CLICK TO OPEN FREQUENCY LAB  →"
                 )
-                self.signal_frequency_text.color = (
-                    AppColors.WHITE
-                )
+                self.signal_frequency_text.color = AppColors.WHITE
         else:
             e.control.scale = 1.0
             e.control.offset = ft.Offset(0, 0)
-
-            e.control.border = ft.Border.all(
-                1,
-                "#34435F",
-            )
-
+            e.control.border = ft.Border.all(1, "#34455E")
             e.control.shadow = ft.BoxShadow(
-                blur_radius=20,
-                spread_radius=0,
-                color="#22000000",
-                offset=ft.Offset(0, 0),
+                blur_radius=22,
+                color="#28000000",
+                offset=ft.Offset(0, 8),
             )
 
             if self.signal_frequency_text is not None:
                 self.signal_frequency_text.value = (
                     "LIVE SIGNAL • 2D IMAGE DOMAIN"
                 )
-                self.signal_frequency_text.color = (
-                    AppColors.CYAN_LIGHT
-                )
+                self.signal_frequency_text.color = AppColors.CYAN_LIGHT
 
         e.control.update()
