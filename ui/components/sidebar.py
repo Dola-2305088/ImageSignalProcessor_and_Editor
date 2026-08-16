@@ -1,485 +1,316 @@
 import flet as ft
 
-from ui.theme import (
-    AppColors,
-    AppLayout,
-    AppAnimations,
-    app_logo_gradient,
-)
+from ui.theme import AppAnimations, AppColors, AppLayout
 
 
 NAV_ITEMS = [
-    ("Home", ft.Icons.HOME_OUTLINED, ft.Icons.HOME, AppColors.CYAN),
-    ("Frequency", ft.Icons.TUNE, ft.Icons.TUNE, AppColors.CYAN),
-    ("Compression", ft.Icons.BAR_CHART_OUTLINED, ft.Icons.BAR_CHART, AppColors.GREEN),
-    ("Texture", ft.Icons.GRID_VIEW_OUTLINED, ft.Icons.GRID_VIEW, AppColors.ORANGE),
-    ("Hybrid", ft.Icons.AUTO_AWESOME_OUTLINED, ft.Icons.AUTO_AWESOME, AppColors.PINK),
-    ("Color", ft.Icons.PALETTE_OUTLINED, ft.Icons.PALETTE, AppColors.PURPLE),
+    ("Home", ft.Icons.HOME_OUTLINED, ft.Icons.HOME),
+    ("Frequency", ft.Icons.GRAPHIC_EQ, ft.Icons.GRAPHIC_EQ),
+    ("Compression", ft.Icons.ARCHIVE_OUTLINED, ft.Icons.ARCHIVE),
+    ("Texture", ft.Icons.GRID_ON_OUTLINED, ft.Icons.GRID_ON),
+    ("Hybrid", ft.Icons.COMPARE_OUTLINED, ft.Icons.COMPARE),
+    ("Color", ft.Icons.PALETTE_OUTLINED, ft.Icons.PALETTE),
 ]
 
 
 class Sidebar:
-    """
-    Animated custom sidebar.
+    """Persistent galaxy navigation with functional Settings and About actions."""
 
-    Public API intentionally matches the old Sidebar class:
-        - .control
-        - toggle()
-        - get_selected_index()
-        - set_selected_index(index)
-        - get_feature_name(index=None)
-
-    This means main_window.py does not need to change.
-    """
-
-    def __init__(self, on_navigation_change):
+    def __init__(
+        self,
+        on_navigation_change,
+        profile=None,
+        on_edit_profile=None,
+        on_show_about=None,
+    ):
         self.on_navigation_change = on_navigation_change
-
+        self.profile = profile
+        self.on_edit_profile = on_edit_profile
+        self.on_show_about = on_show_about
         self.extended = True
         self.selected_index = 0
-
-        self.nav_controls = []
-        self.label_wrappers = []
-        self.logo_text_wrapper = None
-        self.footer_text_wrapper = None
-
+        self.items = []
+        self.labels = []
         self.control = self._build()
 
-    # =========================================================
-    # BUILD
-    # =========================================================
-
     def _build(self):
-        logo = self._build_logo()
-
-        nav_column = ft.Column(
-            spacing=8,
-            expand=True,
-            scroll=ft.ScrollMode.AUTO,
+        nav = ft.Column(
+            spacing=4,
             controls=[
-                self._build_nav_item(
-                    index=i,
-                    label=label,
-                    icon=icon,
-                    selected_icon=selected_icon,
-                    accent=accent,
-                )
-                for i, (label, icon, selected_icon, accent)
-                in enumerate(NAV_ITEMS)
-            ],
-        )
-
-        footer = self._build_footer()
-
-        body = ft.Column(
-            expand=True,
-            spacing=0,
-            controls=[
-                logo,
-                ft.Container(height=14),
-                nav_column,
-                ft.Container(height=10),
-                footer,
+                self._nav_item(i, *item)
+                for i, item in enumerate(NAV_ITEMS)
             ],
         )
 
         return ft.Container(
             width=AppLayout.SIDEBAR_EXPANDED_WIDTH,
-            padding=ft.Padding.only(
-                left=12,
-                right=12,
-                top=14,
-                bottom=12,
-            ),
-            bgcolor=AppColors.SIDEBAR,
-            border=ft.Border.only(
-                right=ft.BorderSide(
-                    1,
-                    AppColors.BORDER,
-                ),
-            ),
-            shadow=ft.BoxShadow(
-                blur_radius=18,
-                spread_radius=0,
-                color="#18000000",
-                offset=ft.Offset(5, 0),
-            ),
+            padding=ft.Padding.only(left=12, right=12, top=10, bottom=12),
+            bgcolor="#07101C",
+            border=ft.Border.only(right=ft.BorderSide(1, "#1D2A3E")),
             animate=ft.Animation(
-                duration=AppAnimations.NORMAL,
-                curve=ft.AnimationCurve.EASE_OUT,
-            ),
-            content=body,
-        )
-
-    # =========================================================
-    # LOGO
-    # =========================================================
-
-    def _build_logo(self):
-        logo_box = ft.Container(
-            width=48,
-            height=48,
-            border_radius=15,
-            gradient=app_logo_gradient(),
-            alignment=ft.Alignment.CENTER,
-            content=ft.Icon(
-                ft.Icons.WAVES,
-                color=AppColors.BLACK,
-                size=27,
-            ),
-        )
-
-        self.logo_text_wrapper = ft.Container(
-            width=130,
-            animate=ft.Animation(
-                duration=AppAnimations.NORMAL,
-                curve=ft.AnimationCurve.EASE_OUT,
+                AppAnimations.NORMAL,
+                ft.AnimationCurve.EASE_OUT,
             ),
             content=ft.Column(
-                spacing=1,
+                expand=True,
+                spacing=0,
                 controls=[
-                    ft.Text(
-                        "DSP LAB",
-                        size=11,
-                        weight=ft.FontWeight.BOLD,
-                        color=AppColors.TEXT,
+                    ft.Container(
+                        height=54,
+                        content=ft.Row(
+                            controls=[
+                                ft.IconButton(
+                                    ft.Icons.MENU,
+                                    icon_size=21,
+                                    icon_color=AppColors.TEXT_SECONDARY,
+                                    on_click=lambda e: self.toggle(),
+                                ),
+                                ft.Container(expand=True),
+                                ft.IconButton(
+                                    ft.Icons.CHEVRON_LEFT,
+                                    icon_size=18,
+                                    icon_color=AppColors.TEXT_SECONDARY,
+                                    bgcolor="#101A2B",
+                                    on_click=lambda e: self.toggle(),
+                                ),
+                            ]
+                        ),
                     ),
-                    ft.Text(
-                        "Signal Studio",
-                        size=8,
-                        color=AppColors.MUTED,
+                    nav,
+                    ft.Container(
+                        height=1,
+                        bgcolor="#1C2A3E",
+                        margin=ft.Margin.only(top=10, bottom=10),
                     ),
+                    self._simple_item(
+                        "Settings",
+                        ft.Icons.SETTINGS_OUTLINED,
+                        self._edit_profile,
+                    ),
+                    self._simple_item(
+                        "About",
+                        ft.Icons.INFO_OUTLINE,
+                        self._show_about,
+                    ),
+                    ft.Container(expand=True),
+                    self._profile(),
                 ],
             ),
         )
 
-        return ft.Container(
-            height=58,
-            padding=ft.Padding.symmetric(
-                horizontal=4,
-                vertical=4,
-            ),
-            content=ft.Row(
-                spacing=10,
-                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                controls=[
-                    logo_box,
-                    self.logo_text_wrapper,
-                ],
-            ),
-        )
+    def _nav_item(self, index, label, icon, selected_icon):
+        selected = index == self.selected_index
 
-    # =========================================================
-    # NAV ITEM
-    # =========================================================
-
-    def _build_nav_item(
-        self,
-        index,
-        label,
-        icon,
-        selected_icon,
-        accent,
-    ):
         icon_control = ft.Icon(
-            selected_icon if index == self.selected_index else icon,
-            size=20,
-            color=(
-                accent
-                if index == self.selected_index
-                else AppColors.MUTED_2
-            ),
+            selected_icon if selected else icon,
+            size=21,
+            color="#EAF0FF" if selected else AppColors.TEXT_SECONDARY,
         )
 
-        icon_shell = ft.Container(
-            width=38,
-            height=38,
-            border_radius=12,
-            alignment=ft.Alignment.CENTER,
-            bgcolor=(
-                f"24{accent[1:]}"
-                if index == self.selected_index
-                else "#00000000"
-            ),
-            animate=ft.Animation(
-                duration=AppAnimations.FAST,
-                curve=ft.AnimationCurve.EASE_OUT,
-            ),
-            content=icon_control,
-        )
-
-        label_text = ft.Text(
+        label_control = ft.Text(
             label,
-            size=10,
-            weight=(
-                ft.FontWeight.BOLD
-                if index == self.selected_index
-                else ft.FontWeight.W_500
-            ),
-            color=(
-                AppColors.TEXT
-                if index == self.selected_index
-                else AppColors.MUTED
-            ),
-            max_lines=1,
-            overflow=ft.TextOverflow.ELLIPSIS,
+            size=11,
+            color="#F4F6FD" if selected else AppColors.TEXT_SECONDARY,
         )
 
-        label_wrapper = ft.Container(
-            width=118,
+        label_holder = ft.Container(
+            width=128,
+            content=label_control,
             animate=ft.Animation(
-                duration=AppAnimations.NORMAL,
-                curve=ft.AnimationCurve.EASE_OUT,
-            ),
-            content=label_text,
-        )
-
-        self.label_wrappers.append(label_wrapper)
-
-        indicator = ft.Container(
-            width=3,
-            height=26 if index == self.selected_index else 8,
-            border_radius=4,
-            bgcolor=(
-                accent
-                if index == self.selected_index
-                else "#00000000"
-            ),
-            shadow=(
-                ft.BoxShadow(
-                    blur_radius=12,
-                    color=f"66{accent[1:]}",
-                )
-                if index == self.selected_index
-                else None
-            ),
-            animate=ft.Animation(
-                duration=AppAnimations.NORMAL,
-                curve=ft.AnimationCurve.EASE_OUT,
+                AppAnimations.NORMAL,
+                ft.AnimationCurve.EASE_OUT,
             ),
         )
 
         item = ft.Container(
-            height=50,
-            padding=ft.Padding.symmetric(
-                horizontal=7,
-                vertical=5,
-            ),
-            border_radius=15,
-            bgcolor=(
-                f"18{accent[1:]}"
-                if index == self.selected_index
-                else "#00000000"
-            ),
+            height=46,
+            padding=ft.Padding.symmetric(horizontal=10),
+            border_radius=10,
+            bgcolor="#17284C" if selected else "#00000000",
             border=ft.Border.all(
                 1,
-                (
-                    f"34{accent[1:]}"
-                    if index == self.selected_index
-                    else "#00000000"
-                ),
-            ),
-            offset=ft.Offset(0, 0),
-            scale=1.0,
-            animate_offset=ft.Animation(
-                duration=170,
-                curve=ft.AnimationCurve.EASE_OUT,
-            ),
-            animate_scale=ft.Animation(
-                duration=170,
-                curve=ft.AnimationCurve.EASE_OUT,
-            ),
-            animate=ft.Animation(
-                duration=AppAnimations.FAST,
-                curve=ft.AnimationCurve.EASE_OUT,
+                "#314A84" if selected else "#00000000",
             ),
             ink=True,
             on_click=lambda e, i=index: self._select(i),
-            on_hover=self._hover_nav_item,
+            on_hover=self._hover,
+            animate=ft.Animation(
+                AppAnimations.FAST,
+                ft.AnimationCurve.EASE_OUT,
+            ),
             data={
                 "index": index,
-                "accent": accent,
-                "icon_shell": icon_shell,
+                "icon": icon,
+                "selected_icon": selected_icon,
                 "icon_control": icon_control,
-                "label_text": label_text,
-                "indicator": indicator,
+                "label_control": label_control,
             },
             content=ft.Row(
-                spacing=8,
-                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                spacing=13,
                 controls=[
-                    indicator,
-                    icon_shell,
-                    label_wrapper,
+                    icon_control,
+                    label_holder,
                 ],
             ),
         )
 
-        self.nav_controls.append(item)
+        self.items.append(item)
+        self.labels.append(label_holder)
         return item
 
-    # =========================================================
-    # FOOTER
-    # =========================================================
-
-    def _build_footer(self):
-        status_dot = ft.Container(
-            width=7,
-            height=7,
-            border_radius=100,
-            bgcolor=AppColors.GREEN,
-            shadow=ft.BoxShadow(
-                blur_radius=7,
-                color="#5534D399",
+    def _simple_item(self, label, icon, on_click=None):
+        holder = ft.Container(
+            width=128,
+            content=ft.Text(
+                label,
+                size=11,
+                color=AppColors.TEXT_SECONDARY,
+            ),
+            animate=ft.Animation(
+                AppAnimations.NORMAL,
+                ft.AnimationCurve.EASE_OUT,
             ),
         )
 
-        self.footer_text_wrapper = ft.Container(
-            width=120,
-            animate=ft.Animation(
-                duration=AppAnimations.NORMAL,
-                curve=ft.AnimationCurve.EASE_OUT,
+        self.labels.append(holder)
+
+        return ft.Container(
+            height=44,
+            padding=ft.Padding.symmetric(horizontal=10),
+            border_radius=10,
+            ink=True,
+            on_click=on_click,
+            on_hover=self._hover_simple,
+            data={"rest_bg": "#00000000"},
+            content=ft.Row(
+                spacing=13,
+                controls=[
+                    ft.Icon(
+                        icon,
+                        size=21,
+                        color=AppColors.TEXT_SECONDARY,
+                    ),
+                    holder,
+                ],
             ),
+        )
+
+    def _profile(self):
+        self.profile_name_text = ft.Text(
+            getattr(self.profile, "name", None) or "User",
+            size=10,
+            color=AppColors.TEXT,
+        )
+
+        self.profile_plan_text = ft.Text(
+            getattr(self.profile, "plan", None) or "Student Plan",
+            size=8,
+            color=AppColors.MUTED,
+        )
+
+        self.profile_avatar_text = ft.Text(
+            getattr(self.profile, "initials", None) or "U",
+            size=13,
+            color=AppColors.WHITE,
+        )
+
+        self.profile_text = ft.Container(
+            width=125,
             content=ft.Column(
                 spacing=1,
                 controls=[
-                    ft.Text(
-                        "LAB READY",
-                        size=8,
-                        weight=ft.FontWeight.BOLD,
-                        color=AppColors.GREEN_LIGHT,
-                    ),
-                    ft.Text(
-                        "6 workspaces online",
-                        size=7,
-                        color=AppColors.MUTED,
-                    ),
+                    self.profile_name_text,
+                    self.profile_plan_text,
                 ],
+            ),
+            animate=ft.Animation(
+                AppAnimations.NORMAL,
+                ft.AnimationCurve.EASE_OUT,
             ),
         )
 
+        self.labels.append(self.profile_text)
+
         return ft.Container(
-            height=48,
-            padding=ft.Padding.symmetric(
-                horizontal=11,
-                vertical=7,
-            ),
-            border_radius=14,
-            bgcolor="#09141A",
-            border=ft.Border.all(
-                1,
-                "#17342D",
-            ),
+            height=64,
+            padding=ft.Padding.symmetric(horizontal=10),
+            border_radius=12,
+            bgcolor="#0A1422",
+            border=ft.Border.all(1, "#223047"),
+            ink=True,
+            tooltip="Edit profile",
+            on_click=self._edit_profile,
+            on_hover=self._hover_simple,
+            data={"rest_bg": "#0A1422"},
             content=ft.Row(
                 spacing=10,
                 controls=[
-                    status_dot,
-                    self.footer_text_wrapper,
+                    ft.Container(
+                        width=35,
+                        height=35,
+                        border_radius=99,
+                        alignment=ft.Alignment.CENTER,
+                        gradient=ft.LinearGradient(
+                            colors=["#7B4AE2", "#3158B6"],
+                        ),
+                        content=self.profile_avatar_text,
+                    ),
+                    self.profile_text,
+                    ft.Icon(
+                        ft.Icons.UNFOLD_MORE,
+                        size=16,
+                        color=AppColors.TEXT_SECONDARY,
+                    ),
                 ],
             ),
         )
 
-    # =========================================================
-    # HOVER
-    # =========================================================
-
     @staticmethod
-    def _is_hovered(value):
-        if isinstance(value, bool):
-            return value
+    def _hover_simple(e):
+        rest_bg = (e.control.data or {}).get(
+            "rest_bg",
+            "#00000000",
+        )
+        e.control.bgcolor = (
+            "#101D31"
+            if str(e.data).lower() == "true"
+            else rest_bg
+        )
+        e.control.update()
 
-        return str(value).strip().lower() in {
-            "true",
-            "1",
-            "yes",
-        }
+    def _edit_profile(self, e):
+        if self.on_edit_profile:
+            self.on_edit_profile(e)
 
-    def _hover_nav_item(self, e):
-        hovered = self._is_hovered(e.data)
+    def _show_about(self, e):
+        if self.on_show_about:
+            self.on_show_about(e)
 
+    def set_profile(self, profile, refresh=True):
+        self.profile = profile
+        self.profile_name_text.value = profile.name
+        self.profile_plan_text.value = profile.plan
+        self.profile_avatar_text.value = profile.initials
+
+        if refresh:
+            try:
+                self.profile_name_text.update()
+                self.profile_plan_text.update()
+                self.profile_avatar_text.update()
+            except Exception:
+                pass
+
+    def _hover(self, e):
         item = e.control
-        data = item.data
-
-        index = data["index"]
-        accent = data["accent"]
-        icon_shell = data["icon_shell"]
-        icon_control = data["icon_control"]
-        label_text = data["label_text"]
-        indicator = data["indicator"]
-
-        selected = index == self.selected_index
-
-        if hovered:
-            # Small slide + scale gives the sidebar a responsive "lift".
-            item.offset = ft.Offset(0.035, 0)
-            item.scale = 1.018
-
+        if item.data["index"] != self.selected_index:
             item.bgcolor = (
-                f"24{accent[1:]}"
-                if selected
-                else f"12{accent[1:]}"
+                "#101D31"
+                if str(e.data).lower() == "true"
+                else "#00000000"
             )
-
-            item.border = ft.Border.all(
-                1,
-                f"38{accent[1:]}",
-            )
-
-            icon_shell.bgcolor = f"28{accent[1:]}"
-            icon_shell.scale = 1.08
-
-            icon_control.color = accent
-            label_text.color = AppColors.TEXT
-
-            if not selected:
-                indicator.height = 16
-                indicator.bgcolor = f"AA{accent[1:]}"
-
-        else:
-            item.offset = ft.Offset(0, 0)
-            item.scale = 1.0
-
-            if selected:
-                item.bgcolor = f"18{accent[1:]}"
-                item.border = ft.Border.all(
-                    1,
-                    f"34{accent[1:]}",
-                )
-
-                icon_shell.bgcolor = f"24{accent[1:]}"
-                icon_shell.scale = 1.0
-
-                icon_control.color = accent
-                label_text.color = AppColors.TEXT
-
-                indicator.height = 26
-                indicator.bgcolor = accent
-            else:
-                item.bgcolor = "#00000000"
-                item.border = ft.Border.all(
-                    1,
-                    "#00000000",
-                )
-
-                icon_shell.bgcolor = "#00000000"
-                icon_shell.scale = 1.0
-
-                icon_control.color = AppColors.MUTED_2
-                label_text.color = AppColors.MUTED
-
-                indicator.height = 8
-                indicator.bgcolor = "#00000000"
-
-        item.update()
-
-    # =========================================================
-    # SELECTION
-    # =========================================================
+            item.update()
 
     def _select(self, index):
-        if index < 0 or index >= len(NAV_ITEMS):
-            return
-
         self.selected_index = index
         self._refresh_selection()
 
@@ -487,109 +318,64 @@ class Sidebar:
             self.on_navigation_change(index)
 
     def _refresh_selection(self):
-        for index, item in enumerate(self.nav_controls):
-            (
-                label,
-                normal_icon,
-                selected_icon,
-                accent,
-            ) = NAV_ITEMS[index]
-
+        for i, item in enumerate(self.items):
+            selected = i == self.selected_index
             data = item.data
 
-            icon_shell = data["icon_shell"]
-            icon_control = data["icon_control"]
-            label_text = data["label_text"]
-            indicator = data["indicator"]
+            item.bgcolor = "#17284C" if selected else "#00000000"
+            item.border = ft.Border.all(
+                1,
+                "#314A84" if selected else "#00000000",
+            )
+            data["icon_control"].name = (
+                data["selected_icon"]
+                if selected
+                else data["icon"]
+            )
+            data["icon_control"].color = (
+                "#EAF0FF"
+                if selected
+                else AppColors.TEXT_SECONDARY
+            )
+            data["label_control"].color = (
+                "#F4F6FD"
+                if selected
+                else AppColors.TEXT_SECONDARY
+            )
 
-            selected = index == self.selected_index
-
-            if selected:
-                item.bgcolor = f"18{accent[1:]}"
-                item.border = ft.Border.all(
-                    1,
-                    f"34{accent[1:]}",
-                )
-
-                icon_shell.bgcolor = f"24{accent[1:]}"
-                icon_control.name = selected_icon
-                icon_control.color = accent
-
-                label_text.color = AppColors.TEXT
-                label_text.weight = ft.FontWeight.BOLD
-
-                indicator.height = 26
-                indicator.bgcolor = accent
-                indicator.shadow = ft.BoxShadow(
-                    blur_radius=12,
-                    color=f"66{accent[1:]}",
-                )
-            else:
-                item.bgcolor = "#00000000"
-                item.border = ft.Border.all(
-                    1,
-                    "#00000000",
-                )
-
-                icon_shell.bgcolor = "#00000000"
-                icon_control.name = normal_icon
-                icon_control.color = AppColors.MUTED_2
-
-                label_text.color = AppColors.MUTED
-                label_text.weight = ft.FontWeight.W_500
-
-                indicator.height = 8
-                indicator.bgcolor = "#00000000"
-                indicator.shadow = None
-
-        self.control.update()
-
-    # =========================================================
-    # COLLAPSE / EXPAND ANIMATION
-    # =========================================================
+        try:
+            self.control.update()
+        except Exception:
+            pass
 
     def toggle(self):
         self.extended = not self.extended
+        self.control.width = (
+            AppLayout.SIDEBAR_EXPANDED_WIDTH
+            if self.extended
+            else AppLayout.SIDEBAR_COLLAPSED_WIDTH
+        )
 
-        if self.extended:
-            self.control.width = AppLayout.SIDEBAR_EXPANDED_WIDTH
+        for label in self.labels:
+            label.width = 128 if self.extended else 0
 
-            self.logo_text_wrapper.width = 130
-            self.footer_text_wrapper.width = 120
-
-            for wrapper in self.label_wrappers:
-                wrapper.width = 118
-
-        else:
-            self.control.width = AppLayout.SIDEBAR_COLLAPSED_WIDTH
-
-            self.logo_text_wrapper.width = 0
-            self.footer_text_wrapper.width = 0
-
-            for wrapper in self.label_wrappers:
-                wrapper.width = 0
-
-        self.control.update()
-
-    # =========================================================
-    # PUBLIC API
-    # =========================================================
+        try:
+            self.control.update()
+        except Exception:
+            pass
 
     def get_selected_index(self):
         return self.selected_index
 
     def set_selected_index(self, index):
-        if index < 0 or index >= len(NAV_ITEMS):
-            return
-
-        self.selected_index = index
-        self._refresh_selection()
+        if 0 <= index < len(NAV_ITEMS):
+            self.selected_index = index
+            self._refresh_selection()
 
     def get_feature_name(self, index=None):
-        if index is None:
-            index = self.selected_index
-
-        if index < 0 or index >= len(NAV_ITEMS):
-            return "Home"
-
-        return NAV_ITEMS[index][0]
+        index = self.selected_index if index is None else index
+        return (
+            NAV_ITEMS[index][0]
+            if 0 <= index < len(NAV_ITEMS)
+            else "Home"
+        )

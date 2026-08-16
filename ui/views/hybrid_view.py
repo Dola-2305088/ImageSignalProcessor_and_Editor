@@ -88,7 +88,7 @@ class HybridView:
 
         header = SectionHeader(
 
-            badge="FEATURE 9",
+            badge="FEATURE 4",
 
             title="Hybrid Image Studio",
 

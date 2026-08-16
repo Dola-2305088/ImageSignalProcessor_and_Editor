@@ -81,7 +81,7 @@ class TextureView:
 
         header = SectionHeader(
 
-            badge="FEATURE 8",
+            badge="FEATURE 3",
 
             title="Texture Analyzer",
 

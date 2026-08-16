@@ -1,3 +1,4 @@
+
 import asyncio
 import os
 from io import BytesIO
@@ -6,6 +7,7 @@ import flet as ft
 import matplotlib
 
 matplotlib.use("Agg")
+
 import matplotlib.pyplot as plt
 import numpy as np
 from PIL import Image, ImageOps
@@ -29,35 +31,23 @@ from algorithms.frequency.color_analysis import (
 )
 from utils.metrics import calculate_psnr
 
+from ui.theme import AppColors, configure_page
+from ui.components.top_bar import TopBar
+from ui.components.sidebar import Sidebar
+from ui.components.image_card import ImageCard
+from ui.components.status_bar import StatusBar
+from ui.components.loading_overlay import LoadingOverlay
+
+from ui.views.home_view import HomeView
+from ui.views.frequency_view import FrequencyView
+from ui.views.compression_view import CompressionView
+from ui.views.texture_view import TextureView
+from ui.views.hybrid_view import HybridView
+from ui.views.color_view import ColorView
+
 
 class ImageProcessorApp:
-    # ---------------------------------------------------------
-    # Dark UI palette
-    # ---------------------------------------------------------
-    BG = "#080B12"
-    SIDEBAR = "#0D121E"
-    SURFACE = "#111827"
-    SURFACE_2 = "#151E2F"
-    SURFACE_3 = "#1B263A"
-    BORDER = "#26344D"
-    TEXT = "#F8FAFC"
-    MUTED = "#8FA0B8"
-    CYAN = "#22D3EE"
-    BLUE = "#3B82F6"
-    PURPLE = "#8B5CF6"
-    PINK = "#EC4899"
-    GREEN = "#10B981"
-    ORANGE = "#F59E0B"
-    RED = "#EF4444"
-
-    NAV_ITEMS = [
-        ("General", ft.Icons.HOME_OUTLINED, ft.Icons.HOME),
-        ("Frequency", ft.Icons.TUNE, ft.Icons.TUNE),
-        ("Compression", ft.Icons.BAR_CHART, ft.Icons.BAR_CHART),
-        ("Texture", ft.Icons.GRID_VIEW, ft.Icons.GRID_VIEW),
-        ("Hybrid", ft.Icons.AUTO_AWESOME_OUTLINED, ft.Icons.AUTO_AWESOME),
-        ("Color", ft.Icons.PALETTE_OUTLINED, ft.Icons.PALETTE),
-    ]
+   
 
     def __init__(self, page: ft.Page):
         self.page = page
@@ -76,7 +66,7 @@ class ImageProcessorApp:
         # Texture state
         self.texture_results = {}
 
-        # Hybrid-image state
+        # Hybrid state
         self.hybrid_low_image = None
         self.hybrid_high_image = None
         self.hybrid_low_name = None
@@ -84,1062 +74,243 @@ class ImageProcessorApp:
         self.hybrid_low_preview_bytes = None
         self.hybrid_high_preview_bytes = None
 
-        self._configure_page()
+        # Navigation state
+        self.current_feature_index = 0
+
+        configure_page(self.page)
         self._build_ui()
 
     # =========================================================
-    # PAGE / ROOT UI
+    # UI BUILD
     # =========================================================
 
-    def _configure_page(self):
-        self.page.title = "Image Signal Processor & Editor"
-        self.page.theme_mode = ft.ThemeMode.DARK
-        self.page.dark_theme = ft.Theme(color_scheme_seed=self.CYAN)
-        self.page.bgcolor = self.BG
-        self.page.padding = 0
-        self.page.spacing = 0
-
-        # Desktop-focused project UI.
-        self.page.window.min_width = 1080
-        self.page.window.min_height = 700
-        self.page.window.maximized = True
-
     def _build_ui(self):
-        # Header values
-        self.active_feature_text = ft.Text(
-            "General",
-            size=13,
-            weight=ft.FontWeight.W_600,
-            color=self.CYAN,
+        self.status_bar = StatusBar()
+        self.loading_overlay = LoadingOverlay()
+
+        self.sidebar = Sidebar(
+            on_navigation_change=self._on_sidebar_navigation,
         )
 
-        self.status_text = ft.Text(
-            "Ready",
-            size=12,
-            color=self.MUTED,
-            expand=True,
+        # The approved dashboard keeps the navigation rail visible on Home.
+        self.sidebar.control.visible = True
+
+        self.top_bar = TopBar(
+            on_toggle_sidebar=self._toggle_sidebar,
+            on_open_image=self.open_image,
+            on_save_result=self.save_processed,
+            on_reset_result=self.reset_processed,
+        )
+        # Home draws its own compact dashboard header. The processing
+        # workspaces continue to use the existing action top bar.
+        self.top_bar.control.visible = False
+
+        self.original_card = ImageCard(
+            title="Original Image",
+            subtitle="No image selected",
+            accent=AppColors.BLUE,
+            placeholder_icon=ft.Icons.IMAGE_OUTLINED,
+            placeholder_title="Open an image to begin",
+            placeholder_subtitle="JPG • PNG • BMP • TIFF • WebP",
         )
 
-        self.busy_ring = ft.ProgressRing(
-            width=18,
-            height=18,
-            stroke_width=2,
-            color=self.CYAN,
-            visible=False,
+        self.processed_card = ImageCard(
+            title="Processed Result",
+            subtitle="Live preview",
+            accent=AppColors.PURPLE,
+            placeholder_icon=ft.Icons.AUTO_FIX_HIGH_OUTLINED,
+            placeholder_title="Processed output appears here",
+            placeholder_subtitle="Choose a feature from the sidebar",
         )
 
-        header = self._build_header()
-
-        # Image workspace
-        self.original_title = ft.Text(
-            "Original Image",
-            size=15,
-            weight=ft.FontWeight.BOLD,
-            color=self.TEXT,
-        )
-        self.original_name = ft.Text(
-            "No image selected",
-            size=11,
-            color=self.MUTED,
-            max_lines=1,
-        )
-        self.processed_title = ft.Text(
-            "Processed Result",
-            size=15,
-            weight=ft.FontWeight.BOLD,
-            color=self.TEXT,
-        )
-
-        self.original_switcher = ft.AnimatedSwitcher(
-            content=self._image_placeholder(
-                ft.Icons.IMAGE_OUTLINED,
-                "Open an image to begin",
-                "JPG • PNG • BMP • TIFF • WebP",
-            ),
-            transition=ft.AnimatedSwitcherTransition.FADE,
-            duration=350,
-            reverse_duration=180,
-            switch_in_curve=ft.AnimationCurve.EASE_OUT,
-            switch_out_curve=ft.AnimationCurve.EASE_IN,
-        )
-
-        self.processed_switcher = ft.AnimatedSwitcher(
-            content=self._image_placeholder(
-                ft.Icons.AUTO_FIX_HIGH_OUTLINED,
-                "Processed output appears here",
-                "Choose a feature from the sidebar",
-            ),
-            transition=ft.AnimatedSwitcherTransition.FADE,
-            duration=350,
-            reverse_duration=180,
-            switch_in_curve=ft.AnimationCurve.EASE_OUT,
-            switch_out_curve=ft.AnimationCurve.EASE_IN,
-        )
-
-        self.original_card = self._image_card(
-            self.original_title,
-            self.original_name,
-            self.original_switcher,
-            self.BLUE,
-        )
-        self.processed_card = self._image_card(
-            self.processed_title,
-            ft.Text("Live preview", size=11, color=self.MUTED),
-            self.processed_switcher,
-            self.PURPLE,
-        )
-
-        image_row = ft.Row(
-            controls=[
-                ft.Container(content=self.original_card, expand=True),
-                ft.Container(content=self.processed_card, expand=True),
-            ],
+        self.image_workspace = ft.ResponsiveRow(
             spacing=16,
+            run_spacing=16,
+            controls=[
+                ft.Container(
+                    col={"xs": 12, "md": 6},
+                    content=self.original_card.control,
+                ),
+                ft.Container(
+                    col={"xs": 12, "md": 6},
+                    content=self.processed_card.control,
+                ),
+            ],
         )
 
-        # Feature panels
+        # -----------------------------
+        # Views
+        # -----------------------------
+
+        self.home_view = HomeView(
+            on_start_session=self.start_new_session,
+            on_open_image=self.open_image,
+            on_navigate=self._navigate_to,
+        )
+
+        self.frequency_view = FrequencyView(
+            on_show_spectrum=self.show_frequency_spectrum,
+            on_reconstruct=self.reconstruct_dft,
+            on_low_pass=self.apply_low_pass,
+            on_high_pass=self.apply_high_pass,
+        )
+
+        self.compression_view = CompressionView(
+            on_apply_compression=self.apply_dft_compression,
+            on_quality_curve=self.plot_compression_quality,
+        )
+
+        self.texture_view = TextureView(
+            on_analyze=self.analyze_current_texture,
+            on_show_comparisons=self.show_texture_comparison,
+        )
+
+        self.hybrid_view = HybridView(
+            on_select_low=self.select_hybrid_low_image,
+            on_select_high=self.select_hybrid_high_image,
+            on_create_hybrid=self.generate_hybrid_image,
+        )
+
+        self.color_view = ColorView(
+            on_red_channel=lambda e: self.show_rgb_channel("R"),
+            on_green_channel=lambda e: self.show_rgb_channel("G"),
+            on_blue_channel=lambda e: self.show_rgb_channel("B"),
+            on_histograms=self.show_rgb_histograms,
+            on_frequencies=self.show_rgb_frequency_spectra,
+            on_ycbcr=self.show_ycbcr_channels,
+        )
+
         self.feature_views = [
-            self._build_general_panel(),
-            self._build_frequency_panel(),
-            self._build_compression_panel(),
-            self._build_texture_panel(),
-            self._build_hybrid_panel(),
-            self._build_color_panel(),
+            self.home_view.control,
+            self.frequency_view.control,
+            self.compression_view.control,
+            self.texture_view.control,
+            self.hybrid_view.control,
+            self.color_view.control,
         ]
 
-        self.feature_switcher = ft.AnimatedSwitcher(
-            content=self.feature_views[0],
-            transition=ft.AnimatedSwitcherTransition.FADE,
-            duration=300,
-            reverse_duration=150,
-            switch_in_curve=ft.AnimationCurve.EASE_OUT,
-            switch_out_curve=ft.AnimationCurve.EASE_IN,
-        )
-
-        self.navigation_rail = ft.NavigationRail(
-            selected_index=0,
-            extended=True,
-            label_type=ft.NavigationRailLabelType.NONE,
-            min_width=76,
-            min_extended_width=220,
-            group_alignment=-0.95,
-            use_indicator=True,
-            indicator_color="#1D4ED8",
-            bgcolor=self.SIDEBAR,
-            scrollable=True,
-            on_change=self._on_navigation_change,
-            leading=ft.Container(
-                padding=ft.Padding.only(top=10, bottom=14),
-                content=ft.Column(
-                    spacing=4,
-                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                    controls=[
-                        ft.Container(
-                            width=44,
-                            height=44,
-                            border_radius=ft.BorderRadius.all(14),
-                            gradient=ft.LinearGradient(
-                                begin=ft.Alignment.TOP_LEFT,
-                                end=ft.Alignment.BOTTOM_RIGHT,
-                                colors=[self.CYAN, self.PURPLE],
-                            ),
-                            alignment=ft.Alignment.CENTER,
-                            content=ft.Icon(
-                                ft.Icons.WAVES,
-                                color="#05070B",
-                                size=26,
-                            ),
-                        ),
-                        ft.Text(
-                            "DSP LAB",
-                            size=10,
-                            weight=ft.FontWeight.BOLD,
-                            color=self.MUTED,
-                        ),
-                    ],
-                ),
-            ),
-            destinations=[
-                ft.NavigationRailDestination(
-                    label=label,
-                    icon=icon,
-                    selected_icon=selected,
-                )
-                for label, icon, selected in self.NAV_ITEMS
-            ],
-        )
-
-        self.sidebar = ft.Container(
-            width=230,
-            bgcolor=self.SIDEBAR,
-            border=ft.Border.only(
-                right=ft.BorderSide(1, self.BORDER),
-            ),
-            animate=ft.Animation(duration=220, curve=ft.AnimationCurve.EASE_OUT),
-            content=self.navigation_rail,
-        )
-
-        main_scroller = ft.Column(
+        # Dedicated landing page: image cards are NOT shown on Home.
+        self.page_content = ft.Column(
             expand=True,
             scroll=ft.ScrollMode.AUTO,
             spacing=18,
             controls=[
-                image_row,
-                self.feature_switcher,
-                ft.Container(height=6),
+                self.home_view.control,
+                ft.Container(height=10),
             ],
         )
 
-        content = ft.Row(
+        body = ft.Row(
             expand=True,
             spacing=0,
             controls=[
-                self.sidebar,
+                self.sidebar.control,
                 ft.Container(
                     expand=True,
                     padding=ft.Padding.all(20),
-                    content=main_scroller,
+                    content=self.page_content,
                 ),
             ],
         )
 
-        status_bar = ft.Container(
-            height=38,
-            bgcolor="#090E17",
-            border=ft.Border.only(top=ft.BorderSide(1, self.BORDER)),
-            padding=ft.Padding.symmetric(horizontal=20),
-            content=ft.Row(
-                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                controls=[
-                    self.busy_ring,
-                    self.status_text,
-                    ft.Text(
-                        "Spatial + Frequency Domain",
-                        size=11,
-                        color="#64748B",
-                    ),
-                ],
-            ),
-        )
-
-        root = ft.Column(
+        app_shell = ft.Column(
             expand=True,
             spacing=0,
-            controls=[header, content, status_bar],
-        )
-
-        self.page.add(root)
-
-    def _build_header(self):
-        return ft.Container(
-            height=82,
-            padding=ft.Padding.symmetric(horizontal=22, vertical=12),
-            gradient=ft.LinearGradient(
-                begin=ft.Alignment.CENTER_LEFT,
-                end=ft.Alignment.CENTER_RIGHT,
-                colors=["#0B1220", "#10172A", "#151329"],
-            ),
-            border=ft.Border.only(bottom=ft.BorderSide(1, self.BORDER)),
-            content=ft.Row(
-                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                controls=[
-                    ft.IconButton(
-                        icon=ft.Icons.MENU,
-                        icon_color=self.TEXT,
-                        tooltip="Collapse / expand sidebar",
-                        on_click=self._toggle_sidebar,
-                    ),
-                    ft.Container(
-                        width=46,
-                        height=46,
-                        border_radius=ft.BorderRadius.all(15),
-                        gradient=ft.LinearGradient(
-                            begin=ft.Alignment.TOP_LEFT,
-                            end=ft.Alignment.BOTTOM_RIGHT,
-                            colors=[self.CYAN, self.PURPLE],
-                        ),
-                        alignment=ft.Alignment.CENTER,
-                        content=ft.Icon(ft.Icons.IMAGE, color="#05070B", size=26),
-                    ),
-                    ft.Column(
-                        spacing=1,
-                        expand=True,
-                        controls=[
-                            ft.Text(
-                                "Image Signal Processor",
-                                size=21,
-                                weight=ft.FontWeight.BOLD,
-                                color=self.TEXT,
-                            ),
-                            ft.Row(
-                                spacing=8,
-                                controls=[
-                                    ft.Text(
-                                        "CSE 220 Signal Lab",
-                                        size=11,
-                                        color=self.MUTED,
-                                    ),
-                                    ft.Text("•", color="#475569"),
-                                    self.active_feature_text,
-                                ],
-                            ),
-                        ],
-                    ),
-                    self._action_button(
-                        "Open Image",
-                        ft.Icons.FOLDER_OPEN,
-                        self.open_image,
-                        self.BLUE,
-                    ),
-                    self._action_button(
-                        "Save Result",
-                        ft.Icons.DOWNLOAD,
-                        self.save_processed,
-                        self.GREEN,
-                    ),
-                    ft.IconButton(
-                        icon=ft.Icons.RESTART_ALT,
-                        icon_color=self.MUTED,
-                        tooltip="Reset result",
-                        on_click=self.reset_processed,
-                    ),
-                ],
-            ),
-        )
-
-    # =========================================================
-    # GENERIC UI BUILDERS
-    # =========================================================
-
-    def _action_button(self, text, icon, handler, color):
-        return ft.Button(
-            content=text,
-            icon=icon,
-            on_click=handler,
-            bgcolor=color,
-            color="#FFFFFF",
-            elevation=0,
-        )
-
-    def _outline_button(self, text, icon, handler):
-        return ft.OutlinedButton(
-            content=text,
-            icon=icon,
-            on_click=handler,
-        )
-
-    def _image_placeholder(self, icon, title, subtitle):
-        return ft.Container(
-            alignment=ft.Alignment.CENTER,
-            content=ft.Column(
-                tight=True,
-                spacing=8,
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                controls=[
-                    ft.Icon(icon, size=46, color="#3A4A63"),
-                    ft.Text(
-                        title,
-                        size=14,
-                        weight=ft.FontWeight.W_600,
-                        color=self.MUTED,
-                        text_align=ft.TextAlign.CENTER,
-                    ),
-                    ft.Text(
-                        subtitle,
-                        size=11,
-                        color="#5E718C",
-                        text_align=ft.TextAlign.CENTER,
-                    ),
-                ],
-            ),
-        )
-
-    def _image_card(self, title, subtitle, switcher, accent):
-        card = ft.Container(
-            expand=True,
-            height=385,
-            bgcolor=self.SURFACE,
-            border=ft.Border.all(1, self.BORDER),
-            border_radius=ft.BorderRadius.all(20),
-            padding=ft.Padding.all(14),
-            animate_scale=ft.Animation(
-                duration=180,
-                curve=ft.AnimationCurve.EASE_OUT,
-            ),
-            on_hover=self._hover_card,
-            content=ft.Column(
-                spacing=10,
-                controls=[
-                    ft.Row(
-                        controls=[
-                            ft.Container(
-                                width=8,
-                                height=32,
-                                border_radius=ft.BorderRadius.all(8),
-                                bgcolor=accent,
-                            ),
-                            ft.Column(
-                                spacing=1,
-                                expand=True,
-                                controls=[title, subtitle],
-                            ),
-                        ],
-                    ),
-                    ft.Container(
-                        expand=True,
-                        alignment=ft.Alignment.CENTER,
-                        bgcolor="#0A0F19",
-                        border=ft.Border.all(1, "#1C2940"),
-                        border_radius=ft.BorderRadius.all(16),
-                        padding=10,
-                        content=switcher,
-                    ),
-                ],
-            ),
-        )
-        return card
-
-    def _hover_card(self, e):
-        e.control.scale = 1.008 if e.data else 1.0
-        e.control.update()
-
-    def _panel_shell(self, title, subtitle, icon, accent, controls):
-        return ft.Container(
-            key=f"panel-{title}",
-            bgcolor=self.SURFACE,
-            border=ft.Border.all(1, self.BORDER),
-            border_radius=ft.BorderRadius.all(20),
-            padding=ft.Padding.all(20),
-            content=ft.Column(
-                spacing=16,
-                controls=[
-                    ft.Row(
-                        controls=[
-                            ft.Container(
-                                width=44,
-                                height=44,
-                                alignment=ft.Alignment.CENTER,
-                                bgcolor=self.SURFACE_3,
-                                border_radius=ft.BorderRadius.all(14),
-                                content=ft.Icon(icon, color=accent, size=24),
-                            ),
-                            ft.Column(
-                                spacing=2,
-                                expand=True,
-                                controls=[
-                                    ft.Text(
-                                        title,
-                                        size=18,
-                                        weight=ft.FontWeight.BOLD,
-                                        color=self.TEXT,
-                                    ),
-                                    ft.Text(
-                                        subtitle,
-                                        size=11,
-                                        color=self.MUTED,
-                                    ),
-                                ],
-                            ),
-                        ],
-                    ),
-                    ft.Divider(height=1, color=self.BORDER),
-                    *controls,
-                ],
-            ),
-        )
-
-    def _info_box(self, title, value="Waiting for analysis…", accent=None):
-        accent = accent or self.CYAN
-        return ft.Container(
-            bgcolor="#0C1422",
-            border=ft.Border.all(1, self.BORDER),
-            border_radius=ft.BorderRadius.all(14),
-            padding=ft.Padding.all(14),
-            content=ft.Column(
-                spacing=5,
-                controls=[
-                    ft.Text(
-                        title.upper(),
-                        size=10,
-                        weight=ft.FontWeight.BOLD,
-                        color=accent,
-                    ),
-                    ft.Text(value, size=12, color=self.TEXT),
-                ],
-            ),
-        )
-
-    def _metric(self, title, value, accent):
-        value_text = ft.Text(
-            value,
-            size=17,
-            weight=ft.FontWeight.BOLD,
-            color=self.TEXT,
-        )
-        box = ft.Container(
-            expand=True,
-            bgcolor="#0C1422",
-            border=ft.Border.all(1, self.BORDER),
-            border_radius=ft.BorderRadius.all(14),
-            padding=ft.Padding.all(14),
-            content=ft.Column(
-                spacing=5,
-                controls=[
-                    ft.Text(title, size=10, color=self.MUTED),
-                    value_text,
-                    ft.Container(height=3, bgcolor=accent, border_radius=3),
-                ],
-            ),
-        )
-        return box, value_text
-
-    # =========================================================
-    # FEATURE PANELS
-    # =========================================================
-
-    def _build_general_panel(self):
-        return self._panel_shell(
-            "General Workspace",
-            "Load an image, inspect it, or create a quick grayscale preview.",
-            ft.Icons.HOME,
-            self.BLUE,
-            [
-                ft.Row(
-                    wrap=True,
-                    spacing=10,
-                    controls=[
-                        self._action_button(
-                            "Open Image", ft.Icons.FOLDER_OPEN, self.open_image, self.BLUE
-                        ),
-                        self._action_button(
-                            "Grayscale",
-                            ft.Icons.MONOCHROME_PHOTOS,
-                            self.convert_to_grayscale,
-                            self.PURPLE,
-                        ),
-                        self._outline_button(
-                            "Reset Result", ft.Icons.RESTART_ALT, self.reset_processed
-                        ),
-                    ],
-                ),
-                ft.Container(
-                    bgcolor="#0C1422",
-                    border_radius=ft.BorderRadius.all(14),
-                    padding=16,
-                    content=ft.Row(
-                        controls=[
-                            ft.Icon(ft.Icons.INFO_OUTLINE, color=self.CYAN),
-                            ft.Text(
-                                "Original images are kept intact. Processing always appears in the result card, so you can compare before and after immediately.",
-                                size=12,
-                                color=self.MUTED,
-                                expand=True,
-                            ),
-                        ],
-                    ),
-                ),
-            ],
-        )
-
-    def _build_frequency_panel(self):
-        self.cutoff_value_text = ft.Text(
-            "15 px",
-            size=13,
-            weight=ft.FontWeight.BOLD,
-            color=self.CYAN,
-        )
-        self.cutoff_slider = ft.Slider(
-            min=2,
-            max=60,
-            value=15,
-            divisions=58,
-            active_color=self.CYAN,
-            on_change=self._on_cutoff_change,
-        )
-
-        return self._panel_shell(
-            "Feature 4 — Frequency Editor",
-            "Inspect the 2D DFT and interactively keep low- or high-frequency regions.",
-            ft.Icons.TUNE,
-            self.CYAN,
-            [
-                ft.Row(
-                    wrap=True,
-                    spacing=10,
-                    controls=[
-                        self._action_button(
-                            "DFT Spectrum",
-                            ft.Icons.BUBBLE_CHART,
-                            self.show_frequency_spectrum,
-                            self.PURPLE,
-                        ),
-                        self._outline_button(
-                            "Reconstruct DFT",
-                            ft.Icons.REPLAY,
-                            self.reconstruct_dft,
-                        ),
-                    ],
-                ),
-                ft.Container(
-                    bgcolor="#0C1422",
-                    border_radius=ft.BorderRadius.all(14),
-                    padding=16,
-                    content=ft.Column(
-                        spacing=4,
-                        controls=[
-                            ft.Row(
-                                controls=[
-                                    ft.Text(
-                                        "Cutoff Radius",
-                                        size=12,
-                                        weight=ft.FontWeight.W_600,
-                                        color=self.TEXT,
-                                    ),
-                                    ft.Container(expand=True),
-                                    self.cutoff_value_text,
-                                ],
-                            ),
-                            self.cutoff_slider,
-                            ft.Text(
-                                "Low-pass keeps the bright center of the shifted spectrum; high-pass removes it and emphasizes fine detail.",
-                                size=10,
-                                color=self.MUTED,
-                            ),
-                        ],
-                    ),
-                ),
-                ft.Row(
-                    wrap=True,
-                    spacing=10,
-                    controls=[
-                        self._action_button(
-                            "Apply Low-Pass",
-                            ft.Icons.BLUR_ON,
-                            self.apply_low_pass,
-                            self.BLUE,
-                        ),
-                        self._action_button(
-                            "Apply High-Pass",
-                            ft.Icons.FILTER_ALT,
-                            self.apply_high_pass,
-                            self.PINK,
-                        ),
-                    ],
-                ),
-            ],
-        )
-
-    def _build_compression_panel(self):
-        self.compression_percent_text = ft.Text(
-            "10%",
-            size=20,
-            weight=ft.FontWeight.BOLD,
-            color=self.GREEN,
-        )
-        self.compression_slider = ft.Slider(
-            min=1,
-            max=100,
-            value=10,
-            divisions=99,
-            active_color=self.GREEN,
-            on_change=self._on_compression_change,
-        )
-
-        self.metric_total, self.metric_total_value = self._metric(
-            "Total coefficients", "—", self.BLUE
-        )
-        self.metric_kept, self.metric_kept_value = self._metric(
-            "Kept", "—", self.GREEN
-        )
-        self.metric_reduction, self.metric_reduction_value = self._metric(
-            "Reduction", "—", self.ORANGE
-        )
-        self.metric_psnr, self.metric_psnr_value = self._metric(
-            "PSNR", "—", self.PURPLE
-        )
-
-        return self._panel_shell(
-            "Feature 5 — Compression Explorer",
-            "Retain only the strongest DFT coefficients and measure reconstruction quality.",
-            ft.Icons.BAR_CHART,
-            self.GREEN,
-            [
-                ft.Container(
-                    bgcolor="#0C1422",
-                    border_radius=ft.BorderRadius.all(14),
-                    padding=16,
-                    content=ft.Column(
-                        spacing=4,
-                        controls=[
-                            ft.Row(
-                                controls=[
-                                    ft.Text(
-                                        "Coefficients to keep",
-                                        size=12,
-                                        weight=ft.FontWeight.W_600,
-                                    ),
-                                    ft.Container(expand=True),
-                                    self.compression_percent_text,
-                                ],
-                            ),
-                            self.compression_slider,
-                        ],
-                    ),
-                ),
-                ft.Row(
-                    spacing=10,
-                    controls=[
-                        self.metric_total,
-                        self.metric_kept,
-                        self.metric_reduction,
-                        self.metric_psnr,
-                    ],
-                ),
-                ft.Row(
-                    wrap=True,
-                    spacing=10,
-                    controls=[
-                        self._action_button(
-                            "Apply Compression",
-                            ft.Icons.COMPRESS,
-                            self.apply_dft_compression,
-                            self.GREEN,
-                        ),
-                        self._action_button(
-                            "Quality Curve",
-                            ft.Icons.SHOW_CHART,
-                            self.plot_compression_quality,
-                            self.PURPLE,
-                        ),
-                    ],
-                ),
-            ],
-        )
-
-    def _build_texture_panel(self):
-        self.texture_info = ft.Text(
-            "Analyze a repeating texture such as brick, cloth, tiles, or grass.",
-            size=12,
-            color=self.MUTED,
-        )
-        self.texture_comparison = ft.Column(spacing=6)
-
-        return self._panel_shell(
-            "Feature 8 — Texture Analyzer",
-            "Estimate dominant orientation and repetition using frequency-domain peaks — no machine learning.",
-            ft.Icons.GRID_VIEW,
-            self.ORANGE,
-            [
-                ft.Row(
-                    wrap=True,
-                    spacing=10,
-                    controls=[
-                        self._action_button(
-                            "Analyze Texture",
-                            ft.Icons.SEARCH,
-                            self.analyze_current_texture,
-                            self.ORANGE,
-                        ),
-                        self._outline_button(
-                            "Show Comparisons",
-                            ft.Icons.COMPARE_ARROWS,
-                            self.show_texture_comparison,
-                        ),
-                    ],
-                ),
-                ft.Container(
-                    bgcolor="#17130B",
-                    border=ft.Border.all(1, "#4B3510"),
-                    border_radius=ft.BorderRadius.all(14),
-                    padding=16,
-                    content=self.texture_info,
-                ),
-                self.texture_comparison,
-            ],
-        )
-
-    def _build_hybrid_panel(self):
-        self.hybrid_low_name_text = ft.Text(
-            "Not selected", size=11, color=self.MUTED, max_lines=1
-        )
-        self.hybrid_high_name_text = ft.Text(
-            "Not selected", size=11, color=self.MUTED, max_lines=1
-        )
-
-        self.hybrid_low_preview = ft.AnimatedSwitcher(
-            content=ft.Icon(ft.Icons.IMAGE_OUTLINED, size=36, color="#40516D"),
-            transition=ft.AnimatedSwitcherTransition.FADE,
-            duration=250,
-        )
-        self.hybrid_high_preview = ft.AnimatedSwitcher(
-            content=ft.Icon(ft.Icons.IMAGE_OUTLINED, size=36, color="#40516D"),
-            transition=ft.AnimatedSwitcherTransition.FADE,
-            duration=250,
-        )
-
-        self.hybrid_low_radius_text = ft.Text(
-            "15 px", weight=ft.FontWeight.BOLD, color=self.BLUE
-        )
-        self.hybrid_high_radius_text = ft.Text(
-            "15 px", weight=ft.FontWeight.BOLD, color=self.PINK
-        )
-        self.hybrid_low_radius = ft.Slider(
-            min=2,
-            max=50,
-            value=15,
-            divisions=48,
-            active_color=self.BLUE,
-            on_change=self._on_hybrid_low_radius_change,
-        )
-        self.hybrid_high_radius = ft.Slider(
-            min=2,
-            max=50,
-            value=15,
-            divisions=48,
-            active_color=self.PINK,
-            on_change=self._on_hybrid_high_radius_change,
-        )
-        self.hybrid_info = ft.Text(
-            "Select Image A and Image B, then tune the two cutoffs.",
-            size=11,
-            color=self.MUTED,
-        )
-
-        source_row = ft.Row(
-            spacing=12,
             controls=[
-                self._hybrid_source_card(
-                    "IMAGE A • LOW FREQUENCIES",
-                    self.hybrid_low_name_text,
-                    self.hybrid_low_preview,
-                    self.BLUE,
-                    self.select_hybrid_low_image,
-                ),
-                self._hybrid_source_card(
-                    "IMAGE B • HIGH FREQUENCIES",
-                    self.hybrid_high_name_text,
-                    self.hybrid_high_preview,
-                    self.PINK,
-                    self.select_hybrid_high_image,
-                ),
+                self.top_bar.control,
+                body,
+                self.status_bar.control,
             ],
         )
 
-        return self._panel_shell(
-            "Feature 9 — Hybrid Images",
-            "Combine broad structure from one image with fine details from another.",
-            ft.Icons.AUTO_AWESOME,
-            self.PINK,
-            [
-                source_row,
-                ft.Row(
-                    spacing=12,
-                    controls=[
-                        self._slider_card(
-                            "Low-pass radius",
-                            self.hybrid_low_radius_text,
-                            self.hybrid_low_radius,
-                            self.BLUE,
-                        ),
-                        self._slider_card(
-                            "High-pass radius",
-                            self.hybrid_high_radius_text,
-                            self.hybrid_high_radius,
-                            self.PINK,
-                        ),
-                    ],
-                ),
-                self._action_button(
-                    "Create Hybrid Image",
-                    ft.Icons.AUTO_AWESOME,
-                    self.generate_hybrid_image,
-                    self.PURPLE,
-                ),
-                self.hybrid_info,
-            ],
-        )
-
-    def _hybrid_source_card(self, title, name_text, preview, accent, handler):
-        return ft.Container(
+        self.root = ft.Stack(
             expand=True,
-            bgcolor="#0C1422",
-            border=ft.Border.all(1, self.BORDER),
-            border_radius=ft.BorderRadius.all(14),
-            padding=14,
-            content=ft.Row(
-                controls=[
-                    ft.Container(
-                        width=92,
-                        height=72,
-                        bgcolor="#080D16",
-                        border_radius=ft.BorderRadius.all(12),
-                        alignment=ft.Alignment.CENTER,
-                        content=preview,
-                    ),
-                    ft.Column(
-                        spacing=5,
-                        expand=True,
-                        controls=[
-                            ft.Text(
-                                title,
-                                size=10,
-                                weight=ft.FontWeight.BOLD,
-                                color=accent,
-                            ),
-                            name_text,
-                            ft.OutlinedButton(
-                                content="Choose image",
-                                icon=ft.Icons.FOLDER_OPEN,
-                                on_click=handler,
-                            ),
-                        ],
-                    ),
-                ],
-            ),
-        )
-
-    def _slider_card(self, title, value_text, slider, accent):
-        return ft.Container(
-            expand=True,
-            bgcolor="#0C1422",
-            border_radius=ft.BorderRadius.all(14),
-            padding=14,
-            content=ft.Column(
-                spacing=3,
-                controls=[
-                    ft.Row(
-                        controls=[
-                            ft.Text(title, size=11, color=self.TEXT),
-                            ft.Container(expand=True),
-                            value_text,
-                        ],
-                    ),
-                    slider,
-                ],
-            ),
-        )
-
-    def _build_color_panel(self):
-        self.color_info = ft.Text(
-            "Choose a channel or analysis mode.",
-            size=12,
-            color=self.MUTED,
-        )
-
-        return self._panel_shell(
-            "Feature 12 — Color & Color-Space Analyzer",
-            "Inspect RGB channels, histograms, per-channel spectra, and YCbCr components.",
-            ft.Icons.PALETTE,
-            self.CYAN,
-            [
-                ft.Text(
-                    "RGB CHANNELS",
-                    size=10,
-                    weight=ft.FontWeight.BOLD,
-                    color=self.MUTED,
-                ),
-                ft.Row(
-                    wrap=True,
-                    spacing=10,
-                    controls=[
-                        self._action_button(
-                            "Red Channel",
-                            ft.Icons.LENS,
-                            lambda e: self.show_rgb_channel("R"),
-                            self.RED,
-                        ),
-                        self._action_button(
-                            "Green Channel",
-                            ft.Icons.LENS,
-                            lambda e: self.show_rgb_channel("G"),
-                            self.GREEN,
-                        ),
-                        self._action_button(
-                            "Blue Channel",
-                            ft.Icons.LENS,
-                            lambda e: self.show_rgb_channel("B"),
-                            self.BLUE,
-                        ),
-                    ],
-                ),
-                ft.Divider(height=1, color=self.BORDER),
-                ft.Text(
-                    "ANALYSIS",
-                    size=10,
-                    weight=ft.FontWeight.BOLD,
-                    color=self.MUTED,
-                ),
-                ft.Row(
-                    wrap=True,
-                    spacing=10,
-                    controls=[
-                        self._action_button(
-                            "RGB Histograms",
-                            ft.Icons.BAR_CHART,
-                            self.show_rgb_histograms,
-                            self.ORANGE,
-                        ),
-                        self._action_button(
-                            "RGB Frequencies",
-                            ft.Icons.WAVES,
-                            self.show_rgb_frequency_spectra,
-                            self.PURPLE,
-                        ),
-                        self._action_button(
-                            "YCbCr Channels",
-                            ft.Icons.COLOR_LENS,
-                            self.show_ycbcr_channels,
-                            self.CYAN,
-                        ),
-                    ],
-                ),
-                ft.Container(
-                    bgcolor="#0C1422",
-                    border=ft.Border.all(1, self.BORDER),
-                    border_radius=ft.BorderRadius.all(14),
-                    padding=16,
-                    content=self.color_info,
-                ),
+            controls=[
+                app_shell,
+                self.loading_overlay.control,
             ],
+        )
+
+        self.page.add(self.root)
+
+        # Start in true Home mode:
+        # - no sidebar
+        # - no Save / Reset controls
+        # - hamburger hidden too if the current TopBar supports it
+        self.top_bar.set_home_mode(True)
+        self.status_bar.control.visible = False
+
+        # Start rotating Explore-the-Lab feature orbit.
+        self.page.run_task(
+            self.home_view.start_orbit_animation
         )
 
     # =========================================================
-    # NAVIGATION / ANIMATION EVENTS
+    # NAVIGATION
     # =========================================================
 
     def _toggle_sidebar(self, e):
-        self.navigation_rail.extended = not self.navigation_rail.extended
-        self.navigation_rail.label_type = (
-            ft.NavigationRailLabelType.NONE
-            if self.navigation_rail.extended
-            else ft.NavigationRailLabelType.ALL
-        )
-        self.sidebar.width = 230 if self.navigation_rail.extended else 92
-        self.navigation_rail.update()
-        self.sidebar.update()
+        self.sidebar.toggle()
 
-    def _on_navigation_change(self, e):
-        index = e.control.selected_index or 0
-        self.active_feature_text.value = self.NAV_ITEMS[index][0]
-        self.feature_switcher.content = self.feature_views[index]
-        self.active_feature_text.update()
-        self.feature_switcher.update()
+    def _on_sidebar_navigation(self, index):
+        self._show_feature(index)
 
-    def _on_cutoff_change(self, e):
-        self.cutoff_value_text.value = f"{int(e.control.value)} px"
-        self.cutoff_value_text.update()
+    def _navigate_to(self, index):
+        self.sidebar.set_selected_index(index)
+        self._show_feature(index)
 
-    def _on_compression_change(self, e):
-        self.compression_percent_text.value = f"{int(e.control.value)}%"
-        self.compression_percent_text.update()
+    def _show_feature(self, index):
+        if index < 0 or index >= len(self.feature_views):
+            index = 0
 
-    def _on_hybrid_low_radius_change(self, e):
-        self.hybrid_low_radius_text.value = f"{int(e.control.value)} px"
-        self.hybrid_low_radius_text.update()
+        self.current_feature_index = index
+        feature_name = self.sidebar.get_feature_name(index)
+        is_home = index == 0
 
-    def _on_hybrid_high_radius_change(self, e):
-        self.hybrid_high_radius_text.value = f"{int(e.control.value)} px"
-        self.hybrid_high_radius_text.update()
+        # =====================================================
+        # SIDEBAR VISIBILITY
+        # =====================================================
+
+        # The approved layout uses persistent navigation on every page.
+        self.sidebar.control.visible = True
+
+        # =====================================================
+        # PAGE CONTENT
+        # =====================================================
+
+        if is_home:
+            self.page_content.controls = [
+                self.home_view.control,
+                ft.Container(height=10),
+            ]
+        else:
+            self.page_content.controls = [
+                self.image_workspace,
+                self.feature_views[index],
+                ft.Container(height=10),
+            ]
+
+        # =====================================================
+        # TOP BAR
+        # =====================================================
+
+        self.top_bar.set_active_feature(feature_name)
+        self.top_bar.set_home_mode(is_home)
+        self.top_bar.control.visible = not is_home
+        self.status_bar.control.visible = not is_home
+
+        # =====================================================
+        # STATUS
+        # =====================================================
+
+        if is_home:
+            self._set_status("Signal Studio ready")
+        else:
+            self._set_status(f"{feature_name} workspace")
+
+        # A whole-page refresh is intentional here because both
+        # page content and sidebar visibility can change at once.
+        self.page.update()
 
     # =========================================================
     # FILE / IMAGE HELPERS
@@ -1186,51 +357,62 @@ class ImageProcessorApp:
         image.save(buffer, format="PNG")
         return buffer.getvalue()
 
-    def _image_control_from_pil(self, image):
-        return self._image_control_from_bytes(self._pil_to_png_bytes(image))
-
-    def _image_control_from_bytes(self, image_bytes):
-        return ft.Image(
-            src=image_bytes,
-            width=560,
-            height=300,
-            fit=ft.BoxFit.CONTAIN,
-            filter_quality=ft.FilterQuality.HIGH,
-            border_radius=ft.BorderRadius.all(12),
-            gapless_playback=True,
-            fade_in_animation=ft.Animation(
-                duration=300,
-                curve=ft.AnimationCurve.EASE_IN_OUT,
-            ),
-        )
-
     def _set_original_preview(self, image, name):
-        self.original_switcher.content = self._image_control_from_pil(image)
-        self.original_name.value = name
-        self.original_switcher.update()
-        self.original_name.update()
+        image_bytes = self._pil_to_png_bytes(image)
+        self.original_card.set_image_bytes(
+            image_bytes,
+            title="Original Image",
+            subtitle=name,
+        )
 
     def _set_processed_pil(self, image, title, status=None):
         self.processed_image = image.copy()
         self.processed_bytes = self._pil_to_png_bytes(image)
-        self.processed_switcher.content = self._image_control_from_bytes(
-            self.processed_bytes
+        self.processed_card.set_image_bytes(
+            self.processed_bytes,
+            title=title,
+            subtitle=status if status else "Processing complete",
         )
-        self.processed_title.value = title
-        self.processed_switcher.update()
-        self.processed_title.update()
+        self._add_processed_result_to_home(self.processed_bytes, title)
         if status:
             self._set_status(status)
 
     def _set_processed_bytes(self, image_bytes, title, status=None):
         self.processed_image = None
         self.processed_bytes = image_bytes
-        self.processed_switcher.content = self._image_control_from_bytes(image_bytes)
-        self.processed_title.value = title
-        self.processed_switcher.update()
-        self.processed_title.update()
+        self.processed_card.set_image_bytes(
+            image_bytes,
+            title=title,
+            subtitle=status if status else "Processing complete",
+        )
+        self._add_processed_result_to_home(image_bytes, title)
         if status:
             self._set_status(status)
+
+    def _add_processed_result_to_home(self, image_bytes, title):
+        """Snapshot the actual output as a lightweight Recent Projects card."""
+        try:
+            with Image.open(BytesIO(image_bytes)) as decoded:
+                width, height = decoded.size
+                output_format = (decoded.format or "PNG").upper()
+                preview = decoded.convert("RGB")
+                preview.thumbnail((960, 560), Image.Resampling.LANCZOS)
+
+                buffer = BytesIO()
+                preview.save(buffer, format="JPEG", quality=86, optimize=True)
+                preview_bytes = buffer.getvalue()
+
+            self.home_view.add_processed_result(
+                image_bytes=preview_bytes,
+                title=title,
+                source_name=self.current_image_name,
+                resolution=f"{width} × {height}",
+                fmt=output_format,
+                refresh=self.current_feature_index == 0,
+            )
+        except Exception:
+            # A dashboard preview must never interrupt the processing result.
+            pass
 
     def _require_image(self):
         if self.original_image is None:
@@ -1238,41 +420,139 @@ class ImageProcessorApp:
             return False
         return True
 
+    # =========================================================
+    # STATUS / LOADING
+    # =========================================================
+
     def _set_status(self, text):
-        self.status_text.value = text
-        self.status_text.update()
+        self.status_bar.set_status(text)
 
     def _set_busy(self, busy, text=None):
-        self.busy_ring.visible = busy
-        if text:
-            self.status_text.value = text
-        self.busy_ring.update()
-        self.status_text.update()
+        self.status_bar.set_busy(busy, text)
+
+        if not busy:
+            self.loading_overlay.hide_immediately()
+            return
+
+        message = text or "Processing image..."
+        lower = message.lower()
+
+        if "manual 2d dft" in lower or "computing 2d dft" in lower:
+            self.loading_overlay.show_dft()
+        elif "compress" in lower or "quality curve" in lower:
+            self.loading_overlay.show_compression()
+        elif "texture" in lower:
+            self.loading_overlay.show_texture()
+        elif "hybrid" in lower:
+            self.loading_overlay.show_hybrid()
+        elif "three channel dft" in lower or "rgb frequenc" in lower:
+            self.loading_overlay.show_color_frequency()
+        else:
+            self.loading_overlay.show(
+                title=self._processing_title(message),
+                subtitle=message,
+                detail="Signal-processing operation in progress",
+                accent=AppColors.CYAN,
+            )
+
+    @staticmethod
+    def _processing_title(text):
+        cleaned = text.strip().replace("…", "").replace("...", "")
+        return cleaned if len(cleaned) <= 38 else "Processing Image"
 
     def _toast(self, text, error=False):
         icon = ft.Icons.ERROR_OUTLINE if error else ft.Icons.CHECK_CIRCLE_OUTLINE
-        color = self.RED if error else self.GREEN
+        color = AppColors.RED if error else AppColors.GREEN
+
+        if error:
+            self.status_bar.show_error(text)
+
         self.page.show_dialog(
             ft.SnackBar(
                 content=ft.Row(
                     controls=[
                         ft.Icon(icon, color=color),
-                        ft.Text(text, color=self.TEXT),
-                    ]
+                        ft.Text(text, color=AppColors.TEXT),
+                    ],
                 ),
                 show_close_icon=True,
             )
         )
 
     # =========================================================
+    # RESET HIDDEN VIEW STATE SAFELY
+    # =========================================================
+
+    def _reset_analysis_display_state(self):
+        # Set values directly. These views may currently be detached from page.
+        self.compression_view.metric_total_value.value = "—"
+        self.compression_view.metric_kept_value.value = "—"
+        self.compression_view.metric_reduction_value.value = "—"
+        self.compression_view.metric_psnr_value.value = "—"
+
+        self.texture_view.current_result = None
+        self.texture_view.current_name = None
+        self.texture_view.analysis_image_name.value = "No texture analyzed"
+        self.texture_view.analysis_status.value = (
+            "Open a repeating texture such as brick, cloth, tiles, "
+            "woven fabric, grass or stripes."
+        )
+        self.texture_view.direction_text.value = "WAITING"
+        self.texture_view.direction_text.color = AppColors.ORANGE
+        self.texture_view.angle_text.value = "—°"
+        self.texture_view.direction_icon.name = ft.Icons.EXPLORE_OUTLINED
+        self.texture_view.direction_icon.color = AppColors.ORANGE
+        self.texture_view.metric_direction_value.value = "—"
+        self.texture_view.metric_spacing_value.value = "—"
+        self.texture_view.metric_frequency_value.value = "—"
+        self.texture_view.metric_strength_value.value = "—"
+
+        self.color_view.active_channel = None
+        self.color_view.channel_statistics = {"R": None, "G": None, "B": None}
+        for control in [
+            self.color_view.red_mean,
+            self.color_view.red_std,
+            self.color_view.red_min,
+            self.color_view.red_max,
+            self.color_view.green_mean,
+            self.color_view.green_std,
+            self.color_view.green_min,
+            self.color_view.green_max,
+            self.color_view.blue_mean,
+            self.color_view.blue_std,
+            self.color_view.blue_min,
+            self.color_view.blue_max,
+        ]:
+            control.value = "—"
+
+        self.color_view.mode_icon.name = ft.Icons.INFO_OUTLINE
+        self.color_view.mode_icon.color = AppColors.PURPLE_LIGHT
+        self.color_view.mode_title.value = "Color Analysis Ready"
+        self.color_view.mode_title.color = AppColors.PURPLE_LIGHT
+        self.color_view.mode_description.value = (
+            "Choose a channel or analysis mode. Results will appear "
+            "in the processed-image workspace."
+        )
+
+    def _reset_processed_card_silently(self):
+        self.processed_card.title_text.value = "Processed Result"
+        self.processed_card.subtitle_text.value = "Live preview"
+        self.processed_card.placeholder_title = "Processed output appears here"
+        self.processed_card.placeholder_subtitle = "Choose a feature from the sidebar"
+        self.processed_card.switcher.content = self.processed_card._create_placeholder()
+
+    # =========================================================
     # GENERAL ACTIONS
     # =========================================================
+
+    async def start_new_session(self, e):
+        await self.open_image(e)
 
     async def open_image(self, e):
         try:
             image, name = await self._pick_pil_image("Open an image")
             if image is None:
-                return
+                return False
 
             self.original_image = image
             self.current_image_name = name
@@ -1280,30 +560,25 @@ class ImageProcessorApp:
             self.current_dft_source = None
             self.current_compressed_dft = None
 
+            # Update Home while it is still mounted, then enter a workspace.
+            if self.current_feature_index == 0:
+                self.home_view.set_session_name(name, refresh=True)
+                self._navigate_to(1)
+            else:
+                self.home_view.set_session_name(name, refresh=False)
+
+            # Image workspace is mounted now.
             self._set_original_preview(image, name)
             self.reset_processed(None)
-
-            self.metric_total_value.value = "—"
-            self.metric_kept_value.value = "—"
-            self.metric_reduction_value.value = "—"
-            self.metric_psnr_value.value = "—"
-            self.metric_total_value.update()
-            self.metric_kept_value.update()
-            self.metric_reduction_value.update()
-            self.metric_psnr_value.update()
-
-            self.texture_info.value = (
-                "Analyze a repeating texture such as brick, cloth, tiles, or grass."
-            )
-            self.color_info.value = "Choose a channel or analysis mode."
-            self.texture_info.update()
-            self.color_info.update()
+            self._reset_analysis_display_state()
 
             self._set_status(f"Loaded {name}")
             self._toast(f"Loaded {name}")
+            return True
 
         except Exception as error:
             self._toast(f"Could not open image: {error}", error=True)
+            return False
 
     async def save_processed(self, e):
         if not self.processed_bytes:
@@ -1327,20 +602,23 @@ class ImageProcessorApp:
     def reset_processed(self, e):
         self.processed_image = None
         self.processed_bytes = None
-        self.processed_title.value = "Processed Result"
-        self.processed_switcher.content = self._image_placeholder(
-            ft.Icons.AUTO_FIX_HIGH_OUTLINED,
-            "Processed output appears here",
-            "Choose a feature from the sidebar",
-        )
-        self.processed_title.update()
-        self.processed_switcher.update()
+
+        if self.current_feature_index == 0:
+            # Card is detached on Home, so do not call .update() on it.
+            self._reset_processed_card_silently()
+        else:
+            self.processed_card.reset(
+                title="Processed Result",
+                subtitle="Live preview",
+                placeholder_title="Processed output appears here",
+                placeholder_subtitle="Choose a feature from the sidebar",
+            )
+
         self._set_status("Result cleared")
 
     def convert_to_grayscale(self, e):
         if not self._require_image():
             return
-
         grayscale = ImageOps.grayscale(self.original_image).convert("RGB")
         self._set_processed_pil(
             grayscale,
@@ -1387,64 +665,96 @@ class ImageProcessorApp:
     async def show_frequency_spectrum(self, e):
         if not await self._ensure_dft():
             return
-        spectrum = await asyncio.to_thread(create_spectrum_image, self.current_dft)
-        image = Image.fromarray(spectrum).convert("RGB")
-        self._set_processed_pil(
-            image,
-            "2D DFT Frequency Spectrum",
-            "Displaying centered log-magnitude DFT spectrum.",
-        )
+
+        self._set_busy(True, "Creating centered DFT spectrum…")
+        try:
+            spectrum = await asyncio.to_thread(
+                create_spectrum_image,
+                self.current_dft,
+            )
+            image = Image.fromarray(spectrum).convert("RGB")
+            self._set_processed_pil(
+                image,
+                "2D DFT Frequency Spectrum",
+                "Displaying centered log-magnitude DFT spectrum.",
+            )
+        except Exception as error:
+            self._toast(f"Spectrum error: {error}", error=True)
+        finally:
+            self._set_busy(False)
 
     async def reconstruct_dft(self, e):
         if not await self._ensure_dft():
             return
-        reconstructed = await asyncio.to_thread(
-            reconstruct_from_dft, self.current_dft
-        )
-        image = Image.fromarray(reconstructed).convert("RGB")
-        self._set_processed_pil(
-            image,
-            "Reconstructed from DFT",
-            "Inverse DFT reconstruction completed.",
-        )
+
+        self._set_busy(True, "Reconstructing image with inverse 2D DFT…")
+        try:
+            reconstructed = await asyncio.to_thread(
+                reconstruct_from_dft,
+                self.current_dft,
+            )
+            image = Image.fromarray(reconstructed).convert("RGB")
+            self._set_processed_pil(
+                image,
+                "Reconstructed from DFT",
+                "Inverse DFT reconstruction completed.",
+            )
+        except Exception as error:
+            self._toast(f"Reconstruction error: {error}", error=True)
+        finally:
+            self._set_busy(False)
 
     async def apply_low_pass(self, e):
         if not await self._ensure_dft():
             return
-        radius = int(self.cutoff_slider.value)
+
+        radius = self.frequency_view.get_cutoff_radius()
         self._set_busy(True, "Applying low-pass frequency mask…")
         try:
             filtered = await asyncio.to_thread(
-                apply_low_pass_filter, self.current_dft, radius
+                apply_low_pass_filter,
+                self.current_dft,
+                radius,
             )
             reconstructed = await asyncio.to_thread(
-                reconstruct_from_dft, filtered
+                reconstruct_from_dft,
+                filtered,
             )
+            result_image = Image.fromarray(reconstructed).convert("RGB")
             self._set_processed_pil(
-                Image.fromarray(reconstructed).convert("RGB"),
+                result_image,
                 f"Low-Pass • Radius {radius}",
                 f"Low-pass filter applied with radius {radius}.",
             )
+        except Exception as error:
+            self._toast(f"Low-pass error: {error}", error=True)
         finally:
             self._set_busy(False)
 
     async def apply_high_pass(self, e):
         if not await self._ensure_dft():
             return
-        radius = int(self.cutoff_slider.value)
+
+        radius = self.frequency_view.get_cutoff_radius()
         self._set_busy(True, "Applying high-pass frequency mask…")
         try:
             filtered = await asyncio.to_thread(
-                apply_high_pass_filter, self.current_dft, radius
+                apply_high_pass_filter,
+                self.current_dft,
+                radius,
             )
             reconstructed = await asyncio.to_thread(
-                reconstruct_from_dft, filtered
+                reconstruct_from_dft,
+                filtered,
             )
+            result_image = Image.fromarray(reconstructed).convert("RGB")
             self._set_processed_pil(
-                Image.fromarray(reconstructed).convert("RGB"),
+                result_image,
                 f"High-Pass • Radius {radius}",
                 f"High-pass filter applied with radius {radius}.",
             )
+        except Exception as error:
+            self._toast(f"High-pass error: {error}", error=True)
         finally:
             self._set_busy(False)
 
@@ -1456,48 +766,45 @@ class ImageProcessorApp:
         if not await self._ensure_dft():
             return
 
-        percentage = int(self.compression_slider.value)
+        percentage = self.compression_view.get_keep_percentage()
         self._set_busy(True, "Compressing DFT coefficients…")
 
         try:
-            (
-                compressed_frequency,
-                _,
-                kept_count,
-                total_count,
-            ) = await asyncio.to_thread(
-                compress_dft, self.current_dft, percentage
+            compressed_frequency, _, kept_count, total_count = await asyncio.to_thread(
+                compress_dft,
+                self.current_dft,
+                percentage,
             )
-
             self.current_compressed_dft = compressed_frequency
+
             reconstructed = await asyncio.to_thread(
-                reconstruct_from_dft, compressed_frequency
+                reconstruct_from_dft,
+                compressed_frequency,
             )
 
             original_for_psnr = np.clip(
-                self.current_dft_source, 0, 255
+                self.current_dft_source,
+                0,
+                255,
             ).astype(np.uint8)
-            psnr = calculate_psnr(original_for_psnr, reconstructed)
 
+            psnr = calculate_psnr(original_for_psnr, reconstructed)
             removed_count = total_count - kept_count
             reduction = removed_count / total_count * 100.0
             psnr_text = "∞" if np.isinf(psnr) else f"{psnr:.2f} dB"
 
-            self.metric_total_value.value = f"{total_count:,}"
-            self.metric_kept_value.value = f"{kept_count:,}"
-            self.metric_reduction_value.value = f"{reduction:.1f}%"
-            self.metric_psnr_value.value = psnr_text
-            self.metric_total_value.update()
-            self.metric_kept_value.update()
-            self.metric_reduction_value.update()
-            self.metric_psnr_value.update()
+            self.compression_view.update_metrics(
+                total=total_count,
+                kept=kept_count,
+                reduction=reduction,
+                psnr=psnr_text,
+            )
 
             self._set_processed_pil(
                 Image.fromarray(reconstructed).convert("RGB"),
                 f"DFT Compression • Keep {percentage}%",
                 f"Compression complete — retained {percentage}% of coefficients.",
             )
-
         except Exception as error:
             self._toast(f"Compression error: {error}", error=True)
         finally:
@@ -1505,7 +812,11 @@ class ImageProcessorApp:
 
     def _build_compression_curve_plot(self):
         percentages = [1, 2, 5, 10, 20, 40, 60, 80, 95]
-        original = np.clip(self.current_dft_source, 0, 255).astype(np.uint8)
+        original = np.clip(
+            self.current_dft_source,
+            0,
+            255,
+        ).astype(np.uint8)
         psnr_values = []
 
         for percentage in percentages:
@@ -1552,7 +863,7 @@ class ImageProcessorApp:
             self._set_busy(False)
 
     # =========================================================
-    # FEATURE 8 — TEXTURE ANALYZER
+    # FEATURE 8 — TEXTURE
     # =========================================================
 
     async def analyze_current_texture(self, e):
@@ -1571,26 +882,10 @@ class ImageProcessorApp:
                 f"Texture analysis completed for {self.current_image_name}.",
             )
 
-            spacing = result["spacing_pixels"]
-            spacing_text = (
-                "No clear repetition"
-                if np.isinf(spacing)
-                else f"{spacing:.2f} px"
-            )
-
-            self.texture_info.value = (
-                f"{self.current_image_name}\n"
-                f"Direction: {result['orientation']}    •    "
-                f"Angle: {result['texture_angle']:.1f}°\n"
-                f"Frequency: {result['radial_frequency']:.4f} cycles/pixel    •    "
-                f"Spacing: {spacing_text}\n"
-                f"Periodicity strength: {result['periodicity_strength']:.2f}"
-            )
-            self.texture_info.update()
-
             key = self.current_image_name or f"Texture {len(self.texture_results) + 1}"
+            self.texture_view.update_result(key, result)
             self.texture_results[key] = result
-
+            self.texture_view.update_comparisons(self.texture_results)
         except Exception as error:
             self._toast(f"Texture analysis error: {error}", error=True)
         finally:
@@ -1601,60 +896,13 @@ class ImageProcessorApp:
             self._toast("Analyze at least one texture first.", error=True)
             return
 
-        rows = [
-            ft.Container(
-                bgcolor=self.SURFACE_3,
-                border_radius=ft.BorderRadius.all(10),
-                padding=10,
-                content=ft.Row(
-                    controls=[
-                        ft.Text("Texture", width=150, weight=ft.FontWeight.BOLD),
-                        ft.Text("Direction", width=100, weight=ft.FontWeight.BOLD),
-                        ft.Text("Angle", width=85, weight=ft.FontWeight.BOLD),
-                        ft.Text("Spacing", width=95, weight=ft.FontWeight.BOLD),
-                        ft.Text("Frequency", width=100, weight=ft.FontWeight.BOLD),
-                        ft.Text("Strength", width=90, weight=ft.FontWeight.BOLD),
-                    ]
-                ),
-            )
-        ]
-
-        for name, result in self.texture_results.items():
-            spacing = result["spacing_pixels"]
-            spacing_text = "N/A" if np.isinf(spacing) else f"{spacing:.2f}px"
-            rows.append(
-                ft.Container(
-                    padding=ft.Padding.symmetric(horizontal=10, vertical=8),
-                    border=ft.Border.only(bottom=ft.BorderSide(1, self.BORDER)),
-                    content=ft.Row(
-                        controls=[
-                            ft.Text(name, width=150, color=self.TEXT),
-                            ft.Text(result["orientation"], width=100, color=self.MUTED),
-                            ft.Text(f"{result['texture_angle']:.1f}°", width=85),
-                            ft.Text(spacing_text, width=95),
-                            ft.Text(f"{result['radial_frequency']:.4f}", width=100),
-                            ft.Text(f"{result['periodicity_strength']:.2f}", width=90),
-                        ]
-                    ),
-                )
-            )
-
-        self.texture_comparison.controls = [
-            ft.Text(
-                "Saved texture comparisons",
-                size=13,
-                weight=ft.FontWeight.BOLD,
-                color=self.ORANGE,
-            ),
-            ft.Row(
-                scroll=ft.ScrollMode.AUTO,
-                controls=[ft.Column(spacing=2, controls=rows)],
-            ),
-        ]
-        self.texture_comparison.update()
+        self.texture_view.update_comparisons(self.texture_results)
+        self._set_status(
+            f"Showing {len(self.texture_results)} saved texture result(s)."
+        )
 
     # =========================================================
-    # FEATURE 9 — HYBRID IMAGES
+    # FEATURE 9 — HYBRID
     # =========================================================
 
     async def select_hybrid_low_image(self, e):
@@ -1668,27 +916,19 @@ class ImageProcessorApp:
             self.hybrid_low_image = image
             self.hybrid_low_name = name
             self.hybrid_low_preview_bytes = self._pil_to_png_bytes(image)
-            self.hybrid_low_name_text.value = name
-            self.hybrid_low_preview.content = ft.Image(
-                src=self.hybrid_low_preview_bytes,
-                width=88,
-                height=68,
-                fit=ft.BoxFit.COVER,
-                border_radius=ft.BorderRadius.all(10),
+            self.hybrid_view.update_low_source(
+                name,
+                self.hybrid_low_preview_bytes,
             )
-            self.hybrid_low_name_text.update()
-            self.hybrid_low_preview.update()
 
-            # Treat A as the current original image too.
             self.original_image = image
             self.current_image_name = name
             self.current_dft = None
             self.current_dft_source = None
+            self.current_compressed_dft = None
             self._set_original_preview(image, name)
-            self.hybrid_info.value = "Image A selected. Now choose Image B."
-            self.hybrid_info.update()
+            self.home_view.set_session_name(name, refresh=False)
             self._set_status(f"Hybrid low-frequency source: {name}")
-
         except Exception as error:
             self._toast(f"Could not select Image A: {error}", error=True)
 
@@ -1703,27 +943,17 @@ class ImageProcessorApp:
             self.hybrid_high_image = image
             self.hybrid_high_name = name
             self.hybrid_high_preview_bytes = self._pil_to_png_bytes(image)
-            self.hybrid_high_name_text.value = name
-            self.hybrid_high_preview.content = ft.Image(
-                src=self.hybrid_high_preview_bytes,
-                width=88,
-                height=68,
-                fit=ft.BoxFit.COVER,
-                border_radius=ft.BorderRadius.all(10),
+            self.hybrid_view.update_high_source(
+                name,
+                self.hybrid_high_preview_bytes,
             )
-            self.hybrid_high_name_text.update()
-            self.hybrid_high_preview.update()
-            self.hybrid_info.value = (
-                "Both sources are ready. Adjust the radii and create the hybrid."
-            )
-            self.hybrid_info.update()
             self._set_status(f"Hybrid high-frequency source: {name}")
-
         except Exception as error:
             self._toast(f"Could not select Image B: {error}", error=True)
 
     def _create_hybrid_sync(self, low_radius, high_radius):
         target_size = (128, 128)
+
         low_image = ImageOps.fit(
             self.hybrid_low_image,
             target_size,
@@ -1737,6 +967,7 @@ class ImageProcessorApp:
 
         low_array = np.array(low_image, dtype=np.float64)
         high_array = np.array(high_image, dtype=np.float64)
+
         return create_hybrid_image(
             low_array,
             high_array,
@@ -1749,8 +980,8 @@ class ImageProcessorApp:
             self._toast("Select both hybrid source images first.", error=True)
             return
 
-        low_radius = int(self.hybrid_low_radius.value)
-        high_radius = int(self.hybrid_high_radius.value)
+        low_radius = self.hybrid_view.get_low_radius()
+        high_radius = self.hybrid_view.get_high_radius()
 
         self._set_busy(True, "Creating hybrid image from two DFTs…")
         try:
@@ -1765,18 +996,14 @@ class ImageProcessorApp:
                 "Hybrid Image",
                 "Hybrid image created successfully.",
             )
-            self.hybrid_info.value = (
-                f"Low frequencies: {self.hybrid_low_name} (r={low_radius})\n"
-                f"High frequencies: {self.hybrid_high_name} (r={high_radius})"
-            )
-            self.hybrid_info.update()
+            self.hybrid_view.show_created_status()
         except Exception as error:
             self._toast(f"Hybrid image error: {error}", error=True)
         finally:
             self._set_busy(False)
 
     # =========================================================
-    # FEATURE 12 — COLOR ANALYSIS
+    # FEATURE 12 — COLOR
     # =========================================================
 
     def show_rgb_channel(self, channel_name):
@@ -1798,12 +1025,7 @@ class ImageProcessorApp:
                 f"{name_map[channel_name]} Channel",
                 f"Displaying the {name_map[channel_name].lower()} channel.",
             )
-            self.color_info.value = (
-                f"{name_map[channel_name]} channel statistics\n"
-                f"Mean: {stats['mean']:.2f}    •    Std: {stats['std']:.2f}    •    "
-                f"Min: {stats['min']:.0f}    •    Max: {stats['max']:.0f}"
-            )
-            self.color_info.update()
+            self.color_view.update_channel_statistics(channel_name, stats)
         except Exception as error:
             self._toast(f"Color analysis error: {error}", error=True)
 
@@ -1814,15 +1036,44 @@ class ImageProcessorApp:
         fig, ax = plt.subplots(figsize=(8.5, 4.6))
         fig.patch.set_facecolor("#0A0F19")
         ax.set_facecolor("#0A0F19")
-        ax.hist(red.flatten(), bins=256, range=(0, 255), alpha=0.45, label="Red", color="#EF4444")
-        ax.hist(green.flatten(), bins=256, range=(0, 255), alpha=0.45, label="Green", color="#10B981")
-        ax.hist(blue.flatten(), bins=256, range=(0, 255), alpha=0.45, label="Blue", color="#3B82F6")
+        ax.hist(
+            red.flatten(),
+            bins=256,
+            range=(0, 255),
+            alpha=0.45,
+            label="Red",
+            color="#EF4444",
+        )
+        ax.hist(
+            green.flatten(),
+            bins=256,
+            range=(0, 255),
+            alpha=0.45,
+            label="Green",
+            color="#10B981",
+        )
+        ax.hist(
+            blue.flatten(),
+            bins=256,
+            range=(0, 255),
+            alpha=0.45,
+            label="Blue",
+            color="#3B82F6",
+        )
         ax.set_xlabel("Intensity", color="#CBD5E1")
         ax.set_ylabel("Pixel count", color="#CBD5E1")
-        ax.set_title("RGB Channel Histogram Comparison", color="#F8FAFC", weight="bold")
+        ax.set_title(
+            "RGB Channel Histogram Comparison",
+            color="#F8FAFC",
+            weight="bold",
+        )
         ax.tick_params(colors="#94A3B8")
         ax.grid(alpha=0.12)
-        ax.legend(facecolor="#111827", edgecolor="#334155", labelcolor="#E2E8F0")
+        ax.legend(
+            facecolor="#111827",
+            edgecolor="#334155",
+            labelcolor="#E2E8F0",
+        )
         for spine in ax.spines.values():
             spine.set_color("#334155")
         fig.tight_layout()
@@ -1831,6 +1082,7 @@ class ImageProcessorApp:
     async def show_rgb_histograms(self, e):
         if not self._require_image():
             return
+
         self._set_busy(True, "Building RGB histograms…")
         try:
             plot_bytes = await asyncio.to_thread(self._build_rgb_histogram_plot)
@@ -1839,10 +1091,7 @@ class ImageProcessorApp:
                 "RGB Histogram Comparison",
                 "RGB histogram comparison generated.",
             )
-            self.color_info.value = (
-                "Each distribution shows how intensities are spread across the red, green, and blue channels."
-            )
-            self.color_info.update()
+            self.color_view.show_histogram_status()
         except Exception as error:
             self._toast(f"Histogram error: {error}", error=True)
         finally:
@@ -1852,8 +1101,8 @@ class ImageProcessorApp:
         working = self.original_image.copy()
         working.thumbnail((128, 128), Image.Resampling.LANCZOS)
         image_array = np.array(working, dtype=np.uint8)
-        red, green, blue = split_rgb_channels(image_array)
 
+        red, green, blue = split_rgb_channels(image_array)
         spectra = [
             calculate_channel_spectrum(red),
             calculate_channel_spectrum(green),
@@ -1863,16 +1112,19 @@ class ImageProcessorApp:
 
         fig, axes = plt.subplots(1, 3, figsize=(11, 4))
         fig.patch.set_facecolor("#0A0F19")
+
         for ax, spectrum, title in zip(axes, spectra, titles):
             ax.imshow(spectrum, cmap="gray")
             ax.set_title(title, color="#F8FAFC", weight="bold")
             ax.axis("off")
+
         fig.tight_layout()
         return self._figure_to_png_bytes(fig)
 
     async def show_rgb_frequency_spectra(self, e):
         if not self._require_image():
             return
+
         self._set_busy(True, "Computing three channel DFT spectra…")
         try:
             plot_bytes = await asyncio.to_thread(self._build_rgb_frequency_plot)
@@ -1881,10 +1133,7 @@ class ImageProcessorApp:
                 "RGB Frequency Content",
                 "RGB channel spectra generated.",
             )
-            self.color_info.value = (
-                "The center contains low-frequency energy; farther regions represent progressively finer spatial detail."
-            )
-            self.color_info.update()
+            self.color_view.show_frequency_status()
         except Exception as error:
             self._toast(f"RGB frequency error: {error}", error=True)
         finally:
@@ -1896,24 +1145,29 @@ class ImageProcessorApp:
 
         fig, axes = plt.subplots(1, 3, figsize=(11, 4))
         fig.patch.set_facecolor("#0A0F19")
-        items = [
-            (y, "Y • Luminance"),
-            (cb, "Cb • Blue chroma"),
-            (cr, "Cr • Red chroma"),
+        titles = [
+            "Y • Luminance",
+            "Cb • Blue chroma",
+            "Cr • Red chroma",
         ]
-        for ax, channel, title in zip(axes, [y, cb, cr], [x[1] for x in items]):
+
+        for ax, channel, title in zip(axes, [y, cb, cr], titles):
             ax.imshow(channel, cmap="gray", vmin=0, vmax=255)
             ax.set_title(title, color="#F8FAFC", weight="bold")
             ax.axis("off")
+
         fig.tight_layout()
         return self._figure_to_png_bytes(fig), y, cb, cr
 
     async def show_ycbcr_channels(self, e):
         if not self._require_image():
             return
+
         self._set_busy(True, "Converting RGB to YCbCr…")
         try:
-            plot_bytes, y, cb, cr = await asyncio.to_thread(self._build_ycbcr_plot)
+            plot_bytes, y, cb, cr = await asyncio.to_thread(
+                self._build_ycbcr_plot
+            )
             self._set_processed_bytes(
                 plot_bytes,
                 "YCbCr Color Space",
@@ -1923,20 +1177,22 @@ class ImageProcessorApp:
             y_stats = get_channel_statistics(y)
             cb_stats = get_channel_statistics(cb)
             cr_stats = get_channel_statistics(cr)
-            self.color_info.value = (
-                "Y = luminance, Cb = blue-difference chroma, Cr = red-difference chroma\n"
-                f"Mean Y: {y_stats['mean']:.2f}    •    "
-                f"Mean Cb: {cb_stats['mean']:.2f}    •    "
-                f"Mean Cr: {cr_stats['mean']:.2f}"
+
+            self.color_view.show_ycbcr_status()
+            self.color_view.mode_description.value = (
+                "Y = luminance • Cb = blue chroma • Cr = red chroma   |   "
+                f"Mean Y: {y_stats['mean']:.1f} • "
+                f"Cb: {cb_stats['mean']:.1f} • "
+                f"Cr: {cr_stats['mean']:.1f}"
             )
-            self.color_info.update()
+            self.color_view.mode_description.update()
         except Exception as error:
             self._toast(f"YCbCr error: {error}", error=True)
         finally:
             self._set_busy(False)
 
     # =========================================================
-    # MATPLOTLIB -> FLET IMAGE
+    # MATPLOTLIB -> PNG BYTES
     # =========================================================
 
     @staticmethod

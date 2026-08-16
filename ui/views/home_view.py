@@ -1,1964 +1,645 @@
 import asyncio
 import math
-
+import time
+from datetime import datetime
 import flet as ft
+import flet.canvas as fc
 
-from ui.theme import AppColors, AppLayout, AppAnimations
+from ui.theme import AppAnimations, AppColors
+from ui.app_preferences import WORKSPACE_OPTIONS
 
-# Put your background image at: assets/images/galaxy.jpg
-HERO_BACKGROUND_IMAGE = "images/Nasa2.jpg"
+GALAXY_IMAGE = "images/Nasa2.jpg"
 
-# Background image used inside Explore the Lab / Round Console.
-# You can use the same image as the Hero or a different one.
-LAB_BACKGROUND_IMAGE = "images/Galaxy1.jpg"
+# Orbit tuning
+ORBIT_FRAME_INTERVAL = 0.02          # ~50fps target
+ORBIT_ANGULAR_SPEED = 0.28           # radians/sec, independent of frame rate
+ORBIT_GLOW_SPEED = 1.6               # breathing speed of the center glow
+ORBIT_TRANSITION_MS = int(ORBIT_FRAME_INTERVAL * 1000 * 2.4)  # slight overlap smooths jitter/frame drops
+ORBIT_ASPECT = 0.58                  # flattens the circular path into the wide ellipse from the reference
+
+# Compact center hub. Keeping the hub comfortably smaller than the outer
+# feature path makes the six feature bubbles visibly orbit around it.
+CENTER_HUB_SIZE = 96
+CENTER_LOGO_SIZE = 86
+CENTER_GLOW_SIZE = 120
+
+# Same six accent colors used by the orbit nodes below, so the center mark
+# reads as "built from" the six operations orbiting it.
+LOGO_BLADE_COLORS = ["#6280FF", "#A65CF6", "#2CC8E8", "#8B58E9", "#24B8D1", "#C05AA5"]
+
+
+def _build_aperture_logo(size: float) -> fc.Canvas:
+    """Draws a six-blade aperture mark natively on a canvas (no raster asset,
+    stays crisp at any size and themable via LOGO_BLADE_COLORS)."""
+    cx = cy = size / 2
+    outer_r = size * 0.46
+    hole_r = size * 0.16
+
+    def rotate(px, py, angle_deg):
+        rad = math.radians(angle_deg)
+        dx, dy = px - cx, py - cy
+        rx = dx * math.cos(rad) - dy * math.sin(rad)
+        ry = dx * math.sin(rad) + dy * math.cos(rad)
+        return cx + rx, cy + ry
+
+    base_tip = (cx + outer_r * 0.16, cy - outer_r)
+    base_side = (cx + outer_r * 0.52, cy - outer_r * 0.58)
+
+    shapes = []
+    for i, color in enumerate(LOGO_BLADE_COLORS):
+        angle = i * 60
+        tip = rotate(*base_tip, angle)
+        side = rotate(*base_side, angle)
+        shapes.append(fc.Path(
+            elements=[
+                fc.Path.MoveTo(cx, cy),
+                fc.Path.LineTo(tip[0], tip[1]),
+                fc.Path.LineTo(side[0], side[1]),
+                fc.Path.Close(),
+            ],
+            paint=ft.Paint(style=ft.PaintingStyle.FILL, color=color),
+        ))
+
+    shapes.append(fc.Circle(cx, cy, hole_r, paint=ft.Paint(style=ft.PaintingStyle.FILL, color="#0B1220")))
+    shapes.append(fc.Circle(cx, cy, hole_r, paint=ft.Paint(
+        style=ft.PaintingStyle.STROKE, stroke_width=1.5, color="#DCE4F5",
+    )))
+
+    return fc.Canvas(width=size, height=size, shapes=shapes)
+
+
+def _build_orbit_spark_logo(size: float) -> fc.Canvas:
+    """Draws the 'orbit and spark' mark: a dashed elliptical rail, a bright
+    center star, and a small spark riding the rail — all native canvas shapes."""
+    cx = cy = size / 2
+    rail_rx = size * 0.36
+    rail_ry = size * 0.21
+    star_r = size * 0.15
+    spark_r = size * 0.055
+    spark_angle = math.radians(-50)
+    spark_x = cx + rail_rx * math.cos(spark_angle)
+    spark_y = cy + rail_ry * math.sin(spark_angle)
+
+    shapes = [
+        fc.Oval(
+            cx - rail_rx, cy - rail_ry, rail_rx * 2, rail_ry * 2,
+            paint=ft.Paint(
+                style=ft.PaintingStyle.STROKE, stroke_width=1.4,
+                color="#4A5C82", stroke_dash_pattern=[5, 5],
+            ),
+        ),
+        fc.Circle(cx, cy, star_r * 1.7, paint=ft.Paint(style=ft.PaintingStyle.FILL, color="#406280FF")),
+        fc.Circle(cx, cy, star_r, paint=ft.Paint(style=ft.PaintingStyle.FILL, color="#EAF1FF")),
+        fc.Circle(cx, cy, star_r, paint=ft.Paint(style=ft.PaintingStyle.STROKE, stroke_width=1.5, color="#6280FF")),
+        fc.Circle(spark_x, spark_y, spark_r * 1.9, paint=ft.Paint(style=ft.PaintingStyle.FILL, color="#402CC8E8")),
+        fc.Circle(spark_x, spark_y, spark_r, paint=ft.Paint(style=ft.PaintingStyle.FILL, color="#2CC8E8")),
+    ]
+
+    return fc.Canvas(width=size, height=size, shapes=shapes)
+
 
 
 class HomeView:
-    """
-    App-style landing page for Signal Studio.
+    """Approved galaxy dashboard; public API remains compatible with main_window.py."""
 
-    IMPORTANT:
-    - Keeps the existing hero / Signal Workspace visual unchanged.
-    - Keeps the existing app logo/header untouched.
-    - Replaces only "Explore the Lab" with a reliable round orbital interface.
-    - Constructor matches the current main_window.py:
-        HomeView(on_start_session=..., on_open_image=..., on_navigate=...)
-    """
-
-    def __init__(self, on_start_session, on_open_image, on_navigate):
+    def __init__(
+        self,
+        on_start_session,
+        on_open_image,
+        on_navigate,
+        profile=None,
+        on_workspace_change=None,
+    ):
         self.on_start_session = on_start_session
         self.on_open_image = on_open_image
         self.on_navigate = on_navigate
-
-        # Orbital animation state.
+        self.profile = profile
+        self.on_workspace_change = on_workspace_change
         self._orbit_running = False
-        self._orbit_paused = False
-        self._orbit_phase = 0.0
-        self._orbit_nodes = []
-        self.orbit_stack = None
+        self._phase = 0.0
+        self._nodes = []
+        self._recent_results = []
+        self._center_container = None
+        self._glow_container = None
 
-        # Central Signal Studio logo animation state.
-        self.logo_core = None
-        self.logo_rotor_outer = None
-        self.logo_rotor_inner = None
-
-        # Hero Signal Workspace animation state.
-        self._signal_phase = 0.0
-        self._signal_scan_phase = 0.0
-        self._signal_bars = []
-        self._signal_particles = []
-        self._signal_hovered = False
-
-        self.signal_console = None
-        self.signal_wave_area = None
-        self.signal_scan_line = None
-        self.signal_live_dot = None
-        self.signal_frequency_text = None
-
-        # Soft ambient hero glows.
-        self.hero_glow_left = None
-        self.hero_glow_right = None
-
-        self.control = self._build()
-
-    # =========================================================
-    # ROOT
-    # =========================================================
-
-    def _build(self):
-        self.session_name_text = ft.Text(
-            "No active image",
-            size=10,
-            color=AppColors.MUTED,
-            max_lines=1,
+        # Live header values. These keep the approved Home UI unchanged while
+        # allowing Settings to update what the user actually sees.
+        self.greeting_text = ft.Text(
+            self._greeting_value(),
+            size=27,
+            weight=ft.FontWeight.BOLD,
+            color=AppColors.TEXT,
+        )
+        self.workspace_name_text = ft.Text(
+            self._workspace_name(),
+            size=11,
+            color=AppColors.TEXT,
+            no_wrap=True,
             overflow=ft.TextOverflow.ELLIPSIS,
         )
+        self.workspace_menu = self._build_workspace_menu()
 
-        return ft.Column(
-            spacing=18,
-            controls=[
-                self._build_hero(),
-                self._build_explore_lab(),
-                self._build_capability_strip(),
-                ft.Container(height=8),
+        self.session_name_text = ft.Text("No active image", size=9, color=AppColors.MUTED)
+        self.control = self._build()
+
+    def _display_name(self):
+        return getattr(self.profile, "name", None) or "Shreya"
+
+    def _workspace_name(self):
+        workspace = getattr(self.profile, "workspace", None) or "Default"
+        return workspace if workspace in WORKSPACE_OPTIONS else "Default"
+
+    def _greeting_value(self):
+        hour = datetime.now().hour
+        if 5 <= hour < 12:
+            period = "Good morning"
+        elif 12 <= hour < 17:
+            period = "Good afternoon"
+        else:
+            period = "Good evening"
+        return f"{period}, {self._display_name()}"
+
+    def _build_workspace_menu(self):
+        current = self._workspace_name()
+        return ft.PopupMenuButton(
+            icon=ft.Icons.KEYBOARD_ARROW_DOWN,
+            icon_size=17,
+            icon_color=AppColors.MUTED,
+            width=24,
+            height=24,
+            tooltip="Switch workspace",
+            items=[
+                ft.PopupMenuItem(
+                    content=workspace,
+                    checked=workspace == current,
+                    data=workspace,
+                    on_click=lambda e, selected=workspace: self._select_workspace(selected),
+                )
+                for workspace in WORKSPACE_OPTIONS
             ],
         )
 
-    # =========================================================
-    # HERO — KEPT IN THE SAME STYLE
-    # =========================================================
-
-    def _build_hero(self):
-        """
-        Premium centered hero.
-
-        The whole landing message now sits on one visual axis:
-        status -> brand -> title -> subtitle -> actions -> session -> live signal.
-        This gives the Home page a cleaner, more professional application feel.
-        """
-
-        ready_badge = ft.Container(
-            padding=ft.Padding.symmetric(
-                horizontal=12,
-                vertical=6,
-            ),
-            bgcolor="#0A1A17",
-            border=ft.Border.all(
-                1,
-                "#17483D",
-            ),
-            border_radius=100,
-            shadow=ft.BoxShadow(
-                blur_radius=12,
-                color="#2234D399",
-            ),
-            content=ft.Row(
-                tight=True,
-                spacing=7,
-                controls=[
-                    ft.Container(
-                        width=8,
-                        height=8,
-                        bgcolor=AppColors.GREEN,
-                        border_radius=100,
-                        shadow=ft.BoxShadow(
-                            blur_radius=8,
-                            color="#6634D399",
-                        ),
-                    ),
-                    ft.Text(
-                        "SYSTEM READY",
-                        size=8,
-                        weight=ft.FontWeight.BOLD,
-                        color=AppColors.GREEN_LIGHT,
-                    ),
-                ],
-            ),
-        )
-
-        eyebrow = ft.Container(
-            padding=ft.Padding.symmetric(
-                horizontal=12,
-                vertical=6,
-            ),
-            border_radius=100,
-            bgcolor="#0A1422",
-            border=ft.Border.all(
-                1,
-                "#223552",
-            ),
-            content=ft.Row(
-                tight=True,
-                spacing=7,
-                controls=[
-                    ft.Icon(
-                        ft.Icons.WAVES,
-                        size=13,
-                        color=AppColors.CYAN,
-                    ),
-                    ft.Text(
-                        "SIGNAL STUDIO",
-                        size=8,
-                        weight=ft.FontWeight.BOLD,
-                        color=AppColors.CYAN_LIGHT,
-                    ),
-                ],
-            ),
-        )
-
-        start_button = ft.Button(
-            content="Start New Session",
-            icon=ft.Icons.ADD_PHOTO_ALTERNATE_OUTLINED,
-            on_click=self.on_start_session,
-            bgcolor=AppColors.BLUE,
-            color=AppColors.WHITE,
-            elevation=0,
-            style=ft.ButtonStyle(
-                padding=ft.Padding.symmetric(
-                    horizontal=20,
-                    vertical=14,
-                ),
-                shape=ft.RoundedRectangleBorder(
-                    radius=13,
-                ),
-            ),
-        )
-
-        browse_button = ft.OutlinedButton(
-            content="Browse Image",
-            icon=ft.Icons.FOLDER_OPEN,
-            on_click=self.on_open_image,
-            style=ft.ButtonStyle(
-                color=AppColors.CYAN_LIGHT,
-                padding=ft.Padding.symmetric(
-                    horizontal=20,
-                    vertical=14,
-                ),
-                shape=ft.RoundedRectangleBorder(
-                    radius=13,
-                ),
-                side=ft.BorderSide(
-                    1,
-                    AppColors.BORDER_LIGHT,
-                ),
-            ),
-        )
-
-        session_strip = ft.Container(
-            width=470,
-            padding=ft.Padding.symmetric(
-                horizontal=14,
-                vertical=10,
-            ),
-            bgcolor="#0A111C",
-            border=ft.Border.all(
-                1,
-                AppColors.BORDER_SOFT,
-            ),
-            border_radius=12,
-            content=ft.Row(
-                alignment=ft.MainAxisAlignment.CENTER,
-                spacing=9,
-                controls=[
-                    ft.Icon(
-                        ft.Icons.INSERT_PHOTO_OUTLINED,
-                        size=15,
-                        color=AppColors.MUTED_2,
-                    ),
-                    ft.Text(
-                        "CURRENT SESSION",
-                        size=8,
-                        weight=ft.FontWeight.BOLD,
-                        color=AppColors.MUTED_2,
-                    ),
-                    ft.Container(
-                        width=1,
-                        height=18,
-                        bgcolor=AppColors.BORDER_SOFT,
-                    ),
-                    self.session_name_text,
-                ],
-            ),
-        )
-
-        # Decorative centered accent line below the title.
-        accent_line = ft.Row(
-            alignment=ft.MainAxisAlignment.CENTER,
-            spacing=7,
-            controls=[
-                ft.Container(
-                    width=30,
-                    height=3,
-                    border_radius=3,
-                    bgcolor=AppColors.CYAN,
-                    opacity=0.8,
-                ),
-                ft.Container(
-                    width=56,
-                    height=3,
-                    border_radius=3,
-                    gradient=ft.LinearGradient(
-                        begin=ft.Alignment.CENTER_LEFT,
-                        end=ft.Alignment.CENTER_RIGHT,
-                        colors=[
-                            AppColors.CYAN,
-                            AppColors.PURPLE,
-                            AppColors.PINK,
-                        ],
-                    ),
-                ),
-                ft.Container(
-                    width=30,
-                    height=3,
-                    border_radius=3,
-                    bgcolor=AppColors.PINK,
-                    opacity=0.8,
-                ),
-            ],
-        )
-
-        center_content = ft.Column(
-            spacing=14,
-            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            controls=[
-                ft.Row(
-                    alignment=ft.MainAxisAlignment.CENTER,
-                    spacing=8,
-                    controls=[
-                        ready_badge,
-                        eyebrow,
-                    ],
-                ),
-
-                ft.Text(
-                    "Image Signal Processor & Editor",
-                    size=40,
-                    weight=ft.FontWeight.BOLD,
-                    color=AppColors.TEXT,
-                    text_align=ft.TextAlign.CENTER,
-                    height=1.05,
-                ),
-
-                accent_line,
-
-                ft.Container(
-                    width=690,
-                    content=ft.Text(
-                        "A focused visual laboratory for spatial filtering, Fourier analysis, "
-                        "compression, texture inspection, hybrid imaging and color-space exploration.",
-                        size=12,
-                        color=AppColors.MUTED,
-                        text_align=ft.TextAlign.CENTER,
-                        height=1.55,
-                    ),
-                ),
-
-                ft.Row(
-                    alignment=ft.MainAxisAlignment.CENTER,
-                    spacing=10,
-                    controls=[
-                        start_button,
-                        browse_button,
-                    ],
-                ),
-
-                session_strip,
-
-                ft.Container(height=4),
-
-                # Centered live signal workspace.
-                self._build_signal_console(),
-            ],
-        )
-
-        # Subtle animated ambient light for depth.
-        self.hero_glow_left = ft.Container(
-            left=40,
-            top=40,
-            width=120,
-            height=120,
-            border_radius=60,
-            bgcolor="#101B3155",
-            blur=35,
-            opacity=0.55,
-            scale=1.0,
-            animate_scale=ft.Animation(
-                duration=900,
-                curve=ft.AnimationCurve.EASE_IN_OUT,
-            ),
-            animate_opacity=ft.Animation(
-                duration=900,
-                curve=ft.AnimationCurve.EASE_IN_OUT,
-            ),
-        )
-
-        self.hero_glow_right = ft.Container(
-            right=55,
-            bottom=35,
-            width=150,
-            height=150,
-            border_radius=75,
-            bgcolor="#25143555",
-            blur=42,
-            opacity=0.50,
-            scale=1.0,
-            animate_scale=ft.Animation(
-                duration=1100,
-                curve=ft.AnimationCurve.EASE_IN_OUT,
-            ),
-            animate_opacity=ft.Animation(
-                duration=1100,
-                curve=ft.AnimationCurve.EASE_IN_OUT,
-            ),
-        )
-
-        hero_background = ft.Stack(
-            expand=True,
-            controls=[
-                self.hero_glow_left,
-                self.hero_glow_right,
-                ft.Container(
-                    left=0,
-                    right=0,
-                    top=0,
-                    bottom=0,
-                    alignment=ft.Alignment.CENTER,
-                    padding=ft.Padding.symmetric(
-                        horizontal=28,
-                        vertical=26,
-                    ),
-                    content=center_content,
-                ),
-            ],
-        )
-
-        # Galaxy image is used only behind the top Hero card.
-        # Everything interactive remains layered above it.
-        return ft.Container(
-            height=650,
-            border_radius=ft.BorderRadius.all(26),
-            border=ft.Border.all(
-                1,
-                "#304465",
-            ),
-            shadow=ft.BoxShadow(
-                blur_radius=38,
-                spread_radius=0,
-                color="#36000000",
-                offset=ft.Offset(0, 14),
-            ),
-            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-            content=ft.Stack(
-                expand=True,
-                controls=[
-                    # =================================================
-                    # 1. GALAXY BACKGROUND IMAGE
-                    # =================================================
-                    ft.Image(
-                        src=HERO_BACKGROUND_IMAGE,
-                        left=0,
-                        right=0,
-                        top=0,
-                        bottom=0,
-                        fit=ft.BoxFit.COVER,
-                    ),
-
-                    # =================================================
-                    # 2. DARK GLASS OVERLAY
-                    #
-                    # Keeps text and controls readable without hiding
-                    # the galaxy.
-                    # =================================================
-                    ft.Container(
-                        left=0,
-                        right=0,
-                        top=0,
-                        bottom=0,
-                        gradient=ft.LinearGradient(
-                            begin=ft.Alignment.TOP_CENTER,
-                            end=ft.Alignment.BOTTOM_CENTER,
-                            colors=[
-                                "#B8060B13",
-                                "#92080F1B",
-                                "#B60A0D19",
-                            ],
-                        ),
-                    ),
-
-                    # =================================================
-                    # 3. SOFT VIGNETTE
-                    #
-                    # Darkens the outside edges and keeps attention in
-                    # the middle of the Hero.
-                    # =================================================
-                    ft.Container(
-                        left=0,
-                        right=0,
-                        top=0,
-                        bottom=0,
-                        gradient=ft.RadialGradient(
-                            center=ft.Alignment.CENTER,
-                            radius=1.05,
-                            colors=[
-                                "#08000000",
-                                "#28070B13",
-                                "#78050A12",
-                            ],
-                        ),
-                    ),
-
-                    # =================================================
-                    # 4. EXISTING ANIMATED HERO CONTENT
-                    #
-                    # This keeps all your existing animation:
-                    # - flowing waveform
-                    # - scanner
-                    # - particles
-                    # - LIVE pulse
-                    # - interactive Signal Workspace
-                    # - animated ambient glows
-                    # =================================================
-                    ft.Container(
-                        left=0,
-                        right=0,
-                        top=0,
-                        bottom=0,
-                        content=hero_background,
-                    ),
-                ],
-            ),
-        )
-
-    # =========================================================
-    # SIGNAL CONSOLE VISUAL — UNCHANGED STYLE
-    # =========================================================
-
-    def _build_signal_console(self):
-        """
-        Interactive animated hero visualization.
-
-        Visual behavior:
-        - waveform bars continuously flow like a live signal
-        - a cyan scan line sweeps across the display
-        - LIVE indicator gently pulses
-        - hover enlarges the whole console and strengthens the glow
-        - clicking the console opens the Frequency workspace
-        """
-
-        # -----------------------------------------------------
-        # LIVE INDICATOR
-        # -----------------------------------------------------
-
-        self.signal_live_dot = ft.Container(
-            width=7,
-            height=7,
-            bgcolor=AppColors.GREEN,
-            border_radius=100,
-            shadow=ft.BoxShadow(
-                blur_radius=8,
-                color="#6634D399",
-            ),
-            animate_scale=ft.Animation(
-                duration=180,
-                curve=ft.AnimationCurve.EASE_IN_OUT,
-            ),
-        )
-
-        live_badge = ft.Container(
-            padding=ft.Padding.symmetric(horizontal=8, vertical=4),
-            border_radius=100,
-            bgcolor="#0B1D1A",
-            border=ft.Border.all(1, "#18483C"),
-            content=ft.Row(
-                tight=True,
-                spacing=5,
-                controls=[
-                    self.signal_live_dot,
-                    ft.Text(
-                        "LIVE",
-                        size=8,
-                        weight=ft.FontWeight.BOLD,
-                        color=AppColors.GREEN_LIGHT,
-                    ),
-                ],
-            ),
-        )
-
-        # -----------------------------------------------------
-        # FLOWING WAVEFORM BARS
-        # -----------------------------------------------------
-
-        self._signal_bars = []
-
-        bar_colors = [
-            AppColors.CYAN,
-            AppColors.CYAN,
-            AppColors.BLUE,
-            AppColors.PURPLE,
-            AppColors.PURPLE,
-            AppColors.PINK,
-            AppColors.PURPLE,
-            AppColors.BLUE,
-            AppColors.CYAN,
-            AppColors.PURPLE,
-            AppColors.PINK,
-            AppColors.CYAN,
-            AppColors.BLUE,
-            AppColors.PURPLE,
-            AppColors.PINK,
-        ]
-
-        initial_heights = [
-            32, 48, 70, 54, 92,
-            65, 41, 77, 58, 96,
-            72, 45, 81, 62, 38,
-        ]
-
-        for index, height in enumerate(initial_heights):
-            bar = ft.Container(
-                width=10,
-                height=height,
-                border_radius=6,
-                gradient=ft.LinearGradient(
-                    begin=ft.Alignment.TOP_CENTER,
-                    end=ft.Alignment.BOTTOM_CENTER,
-                    colors=[
-                        bar_colors[index],
-                        "#382A3B58",
-                    ],
-                ),
-                shadow=ft.BoxShadow(
-                    blur_radius=8,
-                    color=f"33{bar_colors[index][1:]}",
-                ),
-                animate_size=ft.Animation(
-                    duration=115,
-                    curve=ft.AnimationCurve.EASE_IN_OUT,
-                ),
-                animate_opacity=ft.Animation(
-                    duration=115,
-                    curve=ft.AnimationCurve.EASE_IN_OUT,
-                ),
-            )
-            self._signal_bars.append(bar)
-
-        waveform_row = ft.Row(
-            alignment=ft.MainAxisAlignment.CENTER,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            spacing=12,
-            controls=self._signal_bars,
-        )
-
-        # -----------------------------------------------------
-        # SCAN LINE
-        # -----------------------------------------------------
-
-        self.signal_scan_line = ft.Container(
-            left=8,
-            top=8,
-            width=2,
-            bottom=8,
-            border_radius=2,
-            gradient=ft.LinearGradient(
-                begin=ft.Alignment.TOP_CENTER,
-                end=ft.Alignment.BOTTOM_CENTER,
-                colors=[
-                    "#0022D3EE",
-                    "#AA22D3EE",
-                    "#0022D3EE",
-                ],
-            ),
-            shadow=ft.BoxShadow(
-                blur_radius=14,
-                color="#6622D3EE",
-            ),
-            animate_position=ft.Animation(
-                duration=105,
-                curve=ft.AnimationCurve.LINEAR,
-            ),
-        )
-
-        self.signal_frequency_text = ft.Text(
-            "LIVE SIGNAL • 2D IMAGE DOMAIN",
-            size=7,
-            weight=ft.FontWeight.BOLD,
-            color=AppColors.CYAN_LIGHT,
-        )
-
-        # Tiny moving particles make the signal display feel continuous,
-        # while remaining visually subtle.
-        self._signal_particles = []
-
-        particle_colors = [
-            AppColors.CYAN,
-            AppColors.PURPLE,
-            AppColors.PINK,
-            AppColors.CYAN,
-        ]
-
-        for index, particle_color in enumerate(particle_colors):
-            particle = ft.Container(
-                left=22 + index * 105,
-                top=18 + index * 22,
-                width=5 if index % 2 == 0 else 4,
-                height=5 if index % 2 == 0 else 4,
-                border_radius=100,
-                bgcolor=particle_color,
-                opacity=0.45,
-                shadow=ft.BoxShadow(
-                    blur_radius=8,
-                    color=f"55{particle_color[1:]}",
-                ),
-                animate_position=ft.Animation(
-                    duration=120,
-                    curve=ft.AnimationCurve.LINEAR,
-                ),
-                animate_opacity=ft.Animation(
-                    duration=120,
-                    curve=ft.AnimationCurve.EASE_IN_OUT,
-                ),
-            )
-
-            self._signal_particles.append(particle)
-
-        signal_grid = ft.Container(
-            expand=True,
-            padding=10,
-            alignment=ft.Alignment.CENTER,
-            content=ft.Stack(
-                expand=True,
-                controls=[
-                    # Subtle horizontal guide lines.
-                    ft.Container(
-                        top=25,
-                        left=0,
-                        right=0,
-                        height=1,
-                        bgcolor="#192A405F",
-                    ),
-                    ft.Container(
-                        top=55,
-                        left=0,
-                        right=0,
-                        height=1,
-                        bgcolor="#192A405F",
-                    ),
-                    ft.Container(
-                        top=85,
-                        left=0,
-                        right=0,
-                        height=1,
-                        bgcolor="#192A405F",
-                    ),
-
-                    # Floating signal-energy particles.
-                    *self._signal_particles,
-
-                    # Main waveform.
-                    ft.Container(
-                        left=0,
-                        right=0,
-                        top=8,
-                        bottom=8,
-                        alignment=ft.Alignment.CENTER,
-                        content=waveform_row,
-                    ),
-
-                    # Moving scanner.
-                    self.signal_scan_line,
-
-                    # Floating label.
-                    ft.Container(
-                        left=8,
-                        bottom=5,
-                        padding=ft.Padding.symmetric(
-                            horizontal=7,
-                            vertical=3,
-                        ),
-                        border_radius=100,
-                        bgcolor="#B0070B13",
-                        content=self.signal_frequency_text,
-                    ),
-                ],
-            ),
-        )
-
-        self.signal_wave_area = ft.Container(
-            expand=True,
-            alignment=ft.Alignment.CENTER,
-            bgcolor="#070B13",
-            border=ft.Border.all(1, AppColors.BORDER_SOFT),
-            border_radius=16,
-            content=signal_grid,
-        )
-
-        # -----------------------------------------------------
-        # FULL CONSOLE
-        # -----------------------------------------------------
-
-        self.signal_console = ft.Container(
-            width=660,
-            height=280,
-            padding=20,
-            border_radius=ft.BorderRadius.all(22),
-            border=ft.Border.all(1, "#34435F"),
-            gradient=ft.LinearGradient(
-                begin=ft.Alignment.TOP_LEFT,
-                end=ft.Alignment.BOTTOM_RIGHT,
-                colors=["#0B1525", "#12172B", "#21152D"],
-            ),
-            shadow=ft.BoxShadow(
-                blur_radius=20,
-                spread_radius=0,
-                color="#22000000",
-            ),
-            ink=True,
-            on_click=lambda e: self._navigate(1),
-            offset=ft.Offset(0, 0),
-            animate_offset=ft.Animation(
-                duration=190,
-                curve=ft.AnimationCurve.EASE_OUT,
-            ),
-            animate_scale=ft.Animation(
-                duration=190,
-                curve=ft.AnimationCurve.EASE_OUT,
-            ),
-            on_hover=self._hover_signal_console,
-            content=ft.Column(
-                spacing=15,
-                controls=[
-                    ft.Row(
-                        controls=[
-                            ft.Container(
-                                width=44,
-                                height=44,
-                                alignment=ft.Alignment.CENTER,
-                                border_radius=14,
-                                gradient=ft.LinearGradient(
-                                    begin=ft.Alignment.TOP_LEFT,
-                                    end=ft.Alignment.BOTTOM_RIGHT,
-                                    colors=[AppColors.CYAN, AppColors.PURPLE],
-                                ),
-                                content=ft.Icon(
-                                    ft.Icons.WAVES,
-                                    size=24,
-                                    color=AppColors.BLACK,
-                                ),
-                            ),
-                            ft.Column(
-                                spacing=1,
-                                expand=True,
-                                controls=[
-                                    ft.Text(
-                                        "SIGNAL WORKSPACE",
-                                        size=10,
-                                        weight=ft.FontWeight.BOLD,
-                                        color=AppColors.CYAN_LIGHT,
-                                    ),
-                                    ft.Text(
-                                        "Spatial • Frequency • Restoration",
-                                        size=9,
-                                        color=AppColors.MUTED,
-                                    ),
-                                ],
-                            ),
-                            live_badge,
-                        ],
-                    ),
-
-                    self.signal_wave_area,
-
-                    ft.Row(
-                        controls=[
-                            self._mini_console_metric(
-                                "2D", "SIGNALS", AppColors.CYAN
-                            ),
-                            self._mini_console_metric(
-                                "DFT", "DOMAIN", AppColors.PURPLE
-                            ),
-                            self._mini_console_metric(
-                                "PSNR", "QUALITY", AppColors.GREEN
-                            ),
-                        ],
-                    ),
-                ],
-            ),
-        )
-
-        return self.signal_console
-
-    def _mini_console_metric(self, value, label, accent):
-        return ft.Container(
-            expand=True,
-            content=ft.Column(
-                spacing=1,
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                controls=[
-                    ft.Text(
-                        value,
-                        size=13,
-                        weight=ft.FontWeight.BOLD,
-                        color=accent,
-                    ),
-                    ft.Text(
-                        label,
-                        size=7,
-                        weight=ft.FontWeight.BOLD,
-                        color=AppColors.MUTED_2,
-                    ),
-                ],
-            ),
-        )
-
-    # =========================================================
-    # EXPLORE THE LAB — ROUND ORBITAL INTERFACE
-    # =========================================================
-
-    def _build_explore_lab(self):
-        header = ft.Row(
-            controls=[
-                ft.Column(
-                    spacing=2,
-                    expand=True,
-                    controls=[
-                        ft.Text(
-                            "Explore the Lab",
-                            size=18,
-                            weight=ft.FontWeight.BOLD,
-                            color=AppColors.TEXT,
-                        ),
-                        ft.Text(
-                            "Hover over a glowing node, then click to enter a DSP workspace.",
-                            size=10,
-                            color=AppColors.MUTED,
-                        ),
-                    ],
-                ),
-                ft.Container(
-                    padding=ft.Padding.symmetric(horizontal=10, vertical=5),
-                    bgcolor="#0D1727",
-                    border=ft.Border.all(1, AppColors.BORDER_SOFT),
-                    border_radius=100,
-                    content=ft.Row(
-                        tight=True,
-                        spacing=6,
-                        controls=[
-                            ft.Icon(
-                                ft.Icons.TOUCH_APP_OUTLINED,
-                                size=13,
-                                color=AppColors.CYAN,
-                            ),
-                            ft.Text(
-                                "HOVER • CLICK • EXPLORE",
-                                size=8,
-                                weight=ft.FontWeight.BOLD,
-                                color=AppColors.CYAN_LIGHT,
-                            ),
-                        ],
-                    ),
-                ),
-            ],
-        )
-
-        return ft.Container(
-            padding=ft.Padding.symmetric(horizontal=22, vertical=20),
-            bgcolor=AppColors.SURFACE,
-            border=ft.Border.all(1, AppColors.BORDER),
-            border_radius=ft.BorderRadius.all(22),
-            content=ft.Column(
-                spacing=14,
-                controls=[
-                    header,
-                    self._build_orbit(),
-                ],
-            ),
-        )
-
-    def _build_orbit(self):
-        """
-        Animated orbital navigation.
-
-        The six feature bubbles continuously revolve around the central
-        Signal Studio core. Text stays upright for readability.
-
-        Hovering a bubble:
-        - pauses the orbit
-        - enlarges the bubble
-        - strengthens its border
-        - adds a feature-colored glow
-
-        Flet's animate_position smoothly interpolates left/top changes.
-        """
-
-        canvas_width = 820
-        canvas_height = 500
-
-        center_x = canvas_width / 2
-        center_y = canvas_height / 2
-
-        node_size = 112
-        orbit_radius_x = 300
-        orbit_radius_y = 182
-
-        # -----------------------------------------------------
-        # ORBIT RINGS
-        # -----------------------------------------------------
-
-        rings = [
-            self._orbit_ring(
-                left=center_x - 210,
-                top=center_y - 210,
-                size=420,
-                color="#22314D",
-            ),
-            self._orbit_ring(
-                left=center_x - 165,
-                top=center_y - 165,
-                size=330,
-                color="#2A3C5D",
-            ),
-            self._orbit_ring(
-                left=center_x - 120,
-                top=center_y - 120,
-                size=240,
-                color="#385174",
-            ),
-        ]
-
-        # -----------------------------------------------------
-        # CENTRAL CORE
-        # -----------------------------------------------------
-
-        core_size = 164
-
-        # -----------------------------------------------------
-        # ANIMATED LOGO HALOS
-        #
-        # The actual Signal Studio logo/text remains unchanged.
-        # Only the decorative rings rotate and the core gently breathes.
-        # -----------------------------------------------------
-
-        outer_rotor_size = 210
-
-        self.logo_rotor_outer = ft.Stack(
-            left=center_x - outer_rotor_size / 2,
-            top=center_y - outer_rotor_size / 2,
-            width=outer_rotor_size,
-            height=outer_rotor_size,
-            rotate=0.0,
-            animate_rotation=ft.Animation(
-                duration=120,
-                curve=ft.AnimationCurve.LINEAR,
-            ),
-            controls=[
-                ft.Container(
-                    left=0,
-                    top=0,
-                    width=outer_rotor_size,
-                    height=outer_rotor_size,
-                    border_radius=outer_rotor_size / 2,
-                    border=ft.Border.all(1, "#355074"),
-                ),
-                ft.Container(
-                    left=outer_rotor_size / 2 - 5,
-                    top=-5,
-                    width=10,
-                    height=10,
-                    border_radius=5,
-                    bgcolor=AppColors.CYAN,
-                    shadow=ft.BoxShadow(
-                        blur_radius=14,
-                        color="#7722D3EE",
-                    ),
-                ),
-                ft.Container(
-                    right=-4,
-                    top=outer_rotor_size / 2 - 4,
-                    width=8,
-                    height=8,
-                    border_radius=4,
-                    bgcolor=AppColors.PURPLE,
-                    shadow=ft.BoxShadow(
-                        blur_radius=12,
-                        color="#778B5CF6",
-                    ),
-                ),
-                ft.Container(
-                    left=outer_rotor_size / 2 - 4,
-                    bottom=-4,
-                    width=8,
-                    height=8,
-                    border_radius=4,
-                    bgcolor=AppColors.PINK,
-                    shadow=ft.BoxShadow(
-                        blur_radius=12,
-                        color="#77EC4899",
-                    ),
-                ),
-            ],
-        )
-
-        inner_rotor_size = 188
-
-        self.logo_rotor_inner = ft.Stack(
-            left=center_x - inner_rotor_size / 2,
-            top=center_y - inner_rotor_size / 2,
-            width=inner_rotor_size,
-            height=inner_rotor_size,
-            rotate=0.0,
-            animate_rotation=ft.Animation(
-                duration=120,
-                curve=ft.AnimationCurve.LINEAR,
-            ),
-            controls=[
-                ft.Container(
-                    left=0,
-                    top=0,
-                    width=inner_rotor_size,
-                    height=inner_rotor_size,
-                    border_radius=inner_rotor_size / 2,
-                    border=ft.Border.all(1, "#263A59"),
-                ),
-                ft.Container(
-                    left=-4,
-                    top=inner_rotor_size / 2 - 4,
-                    width=8,
-                    height=8,
-                    border_radius=4,
-                    bgcolor=AppColors.BLUE,
-                ),
-                ft.Container(
-                    right=inner_rotor_size / 2 - 3,
-                    top=-3,
-                    width=6,
-                    height=6,
-                    border_radius=3,
-                    bgcolor=AppColors.GREEN,
-                ),
-            ],
-        )
-
-        self.logo_core = ft.Container(
-            left=center_x - core_size / 2,
-            top=center_y - core_size / 2,
-            width=core_size,
-            height=core_size,
-            alignment=ft.Alignment.CENTER,
-            border_radius=core_size / 2,
-            gradient=ft.RadialGradient(
-                colors=[
-                    "#24415D",
-                    "#171A34",
-                    "#0A0F1B",
-                ],
-            ),
-            border=ft.Border.all(1.5, "#496788"),
-            shadow=ft.BoxShadow(
-                blur_radius=34,
-                spread_radius=2,
-                color="#3022D3EE",
-            ),
-            animate_scale=ft.Animation(
-                duration=360,
-                curve=ft.AnimationCurve.EASE_IN_OUT,
-            ),
-            content=ft.Column(
-                tight=True,
-                spacing=4,
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                controls=[
-                    ft.Icon(
-                        ft.Icons.WAVES,
-                        size=42,
-                        color=AppColors.CYAN,
-                    ),
-                    ft.Text(
-                        "SIGNAL",
-                        size=13,
-                        weight=ft.FontWeight.BOLD,
-                        color=AppColors.TEXT,
-                    ),
-                    ft.Text(
-                        "STUDIO",
-                        size=10,
-                        weight=ft.FontWeight.BOLD,
-                        color=AppColors.PURPLE_LIGHT,
-                    ),
-                    ft.Text(
-                        "EXPLORE",
-                        size=7,
-                        weight=ft.FontWeight.BOLD,
-                        color=AppColors.MUTED,
-                    ),
-                ],
-            ),
-        )
-
-        # -----------------------------------------------------
-        # FEATURE DEFINITIONS
-        #
-        # Equal 60-degree spacing keeps the interface balanced.
-        # -----------------------------------------------------
-
-        specs = [
-            {
-                "angle": -90,
-                "title": "Frequency",
-                "badge": "FEATURE 4",
-                "icon": ft.Icons.TUNE,
-                "accent": AppColors.CYAN,
-                "tint": "#0B2630",
-                "handler": lambda e: self._navigate(1),
-            },
-            {
-                "angle": -30,
-                "title": "Compression",
-                "badge": "FEATURE 5",
-                "icon": ft.Icons.BAR_CHART,
-                "accent": AppColors.GREEN,
-                "tint": "#0B2A21",
-                "handler": lambda e: self._navigate(2),
-            },
-            {
-                "angle": 30,
-                "title": "Texture",
-                "badge": "FEATURE 8",
-                "icon": ft.Icons.GRID_VIEW,
-                "accent": AppColors.ORANGE,
-                "tint": "#2A210E",
-                "handler": lambda e: self._navigate(3),
-            },
-            {
-                "angle": 90,
-                "title": "New Session",
-                "badge": "OPEN IMAGE",
-                "icon": ft.Icons.ADD_PHOTO_ALTERNATE_OUTLINED,
-                "accent": AppColors.BLUE,
-                "tint": "#10284A",
-                "handler": self.on_start_session,
-            },
-            {
-                "angle": 150,
-                "title": "Hybrid",
-                "badge": "FEATURE 9",
-                "icon": ft.Icons.AUTO_AWESOME,
-                "accent": AppColors.PINK,
-                "tint": "#301121",
-                "handler": lambda e: self._navigate(4),
-            },
-            {
-                "angle": 210,
-                "title": "Color Lab",
-                "badge": "FEATURE 12",
-                "icon": ft.Icons.PALETTE,
-                "accent": AppColors.PURPLE,
-                "tint": "#241636",
-                "handler": lambda e: self._navigate(5),
-            },
-        ]
-
-        self._orbit_nodes = []
-
-        for spec in specs:
-            angle_rad = math.radians(spec["angle"])
-
-            left = (
-                center_x
-                + orbit_radius_x * math.cos(angle_rad)
-                - node_size / 2
-            )
-
-            top = (
-                center_y
-                + orbit_radius_y * math.sin(angle_rad)
-                - node_size / 2
-            )
-
-            node = self._orbit_node(
-                left=left,
-                top=top,
-                size=node_size,
-                title=spec["title"],
-                badge=spec["badge"],
-                icon=spec["icon"],
-                accent=spec["accent"],
-                tint=spec["tint"],
-                handler=spec["handler"],
-            )
-
-            self._orbit_nodes.append(
-                {
-                    "control": node,
-                    "base_angle": spec["angle"],
-                }
-            )
-
-        # -----------------------------------------------------
-        # DECORATIVE SIGNAL POINTS
-        # -----------------------------------------------------
-
-        decorations = [
-            self._signal_dot(244, 56, AppColors.CYAN),
-            self._signal_dot(560, 55, AppColors.PURPLE),
-            self._signal_dot(715, 250, AppColors.GREEN),
-            self._signal_dot(535, 432, AppColors.PINK),
-            self._signal_dot(280, 437, AppColors.ORANGE),
-            self._signal_dot(101, 250, AppColors.BLUE),
-        ]
-
-        self.orbit_stack = ft.Stack(
-            width=canvas_width,
-            height=canvas_height,
-            controls=[
-                *rings,
-                *decorations,
-
-                # Animated logo layers
-                self.logo_rotor_outer,
-                self.logo_rotor_inner,
-                self.logo_core,
-
-                *[
-                    item["control"]
-                    for item in self._orbit_nodes
-                ],
-            ],
-        )
-
-        # -----------------------------------------------------
-        # ROUND CONSOLE BACKGROUND
-        #
-        # Layer order:
-        # 1. galaxy image
-        # 2. dark overlay
-        # 3. radial vignette
-        # 4. animated orbit interface
-        # -----------------------------------------------------
-
-        return ft.Container(
-            height=520,
-            alignment=ft.Alignment.CENTER,
-            border=ft.Border.all(
-                1,
-                AppColors.BORDER_SOFT,
-            ),
-            border_radius=ft.BorderRadius.all(19),
-            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-            content=ft.Stack(
-                expand=True,
-                controls=[
-                    # =================================================
-                    # 1. GALAXY BACKGROUND
-                    # =================================================
-                    ft.Image(
-                        src=LAB_BACKGROUND_IMAGE,
-                        left=0,
-                        right=0,
-                        top=0,
-                        bottom=0,
-                        fit=ft.BoxFit.COVER,
-                    ),
-
-                    # =================================================
-                    # 2. DARK GLASS OVERLAY
-                    #
-                    # Slightly darker than the Hero because the orbit
-                    # rings and labels need strong contrast.
-                    # =================================================
-                    ft.Container(
-                        left=0,
-                        right=0,
-                        top=0,
-                        bottom=0,
-                        gradient=ft.LinearGradient(
-                            begin=ft.Alignment.TOP_CENTER,
-                            end=ft.Alignment.BOTTOM_CENTER,
-                            colors=[
-                                "#B8070C16",
-                                "#A6080D18",
-                                "#C4070B14",
-                            ],
-                        ),
-                    ),
-
-                    # =================================================
-                    # 3. RADIAL VIGNETTE
-                    #
-                    # Keeps the center glowing and the edges darker,
-                    # making the circular interface stand out.
-                    # =================================================
-                    ft.Container(
-                        left=0,
-                        right=0,
-                        top=0,
-                        bottom=0,
-                        gradient=ft.RadialGradient(
-                            center=ft.Alignment.CENTER,
-                            radius=1.0,
-                            colors=[
-                                "#08000000",
-                                "#2508111F",
-                                "#7C040810",
-                            ],
-                        ),
-                    ),
-
-                    # =================================================
-                    # 4. ORBITAL DSP INTERFACE
-                    # =================================================
-                    ft.Container(
-                        left=0,
-                        right=0,
-                        top=0,
-                        bottom=0,
-                        alignment=ft.Alignment.CENTER,
-                        content=ft.Row(
-                            alignment=ft.MainAxisAlignment.CENTER,
-                            scroll=ft.ScrollMode.AUTO,
-                            controls=[
-                                self.orbit_stack,
-                            ],
-                        ),
-                    ),
-                ],
-            ),
-        )
-
-    def _orbit_ring(self, left, top, size, color):
-        return ft.Container(
-            left=left,
-            top=top,
-            width=size,
-            height=size,
-            border_radius=size / 2,
-            border=ft.Border.all(1, color),
-        )
-
-    def _orbit_node(
-        self,
-        left,
-        top,
-        size,
-        title,
-        badge,
-        icon,
-        accent,
-        tint,
-        handler,
-    ):
-        """
-        A circular clickable node.
-
-        Hover deliberately changes only well-supported properties:
-        scale, border and shadow. The gradient remains static so the
-        control does not need to swap between bgcolor/gradient at runtime.
-        """
-
-        return ft.Container(
-            left=left,
-            top=top,
-            width=size,
-            height=size,
-            alignment=ft.Alignment.CENTER,
-            border_radius=size / 2,
-            gradient=ft.RadialGradient(
-                colors=[
-                    tint,
-                    "#0D1523",
-                    "#080D16",
-                ],
-            ),
-            border=ft.Border.all(1.4, accent),
-            shadow=ft.BoxShadow(
-                blur_radius=14,
-                spread_radius=0,
-                color="#26000000",
-            ),
-            ink=True,
-            on_click=handler,
-            on_hover=self._hover_orbit_node,
-            animate_scale=ft.Animation(
-                duration=180,
-                curve=ft.AnimationCurve.EASE_OUT,
-            ),
-
-            # Smooth movement around the orbit.
-            animate_position=ft.Animation(
-                duration=120,
-                curve=ft.AnimationCurve.LINEAR,
-            ),
-            data={
-                "accent": accent,
-            },
-            content=ft.Column(
-                tight=True,
-                spacing=4,
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                controls=[
-                    ft.Container(
-                        width=43,
-                        height=43,
-                        alignment=ft.Alignment.CENTER,
-                        border_radius=22,
-                        bgcolor="#191FFFFFF",
-                        border=ft.Border.all(1, accent),
-                        content=ft.Icon(
-                            icon,
-                            size=22,
-                            color=accent,
-                        ),
-                    ),
-                    ft.Text(
-                        title,
-                        size=10,
-                        weight=ft.FontWeight.BOLD,
-                        color=AppColors.TEXT,
-                        text_align=ft.TextAlign.CENTER,
-                    ),
-                    ft.Text(
-                        badge,
-                        size=7,
-                        weight=ft.FontWeight.BOLD,
-                        color=accent,
-                        text_align=ft.TextAlign.CENTER,
-                    ),
-                ],
-            ),
-        )
-
-    def _signal_dot(self, left, top, color):
-        return ft.Container(
-            left=left,
-            top=top,
-            width=6,
-            height=6,
-            border_radius=3,
-            bgcolor=color,
-            opacity=0.65,
-        )
-
-    # =========================================================
-    # CAPABILITY STRIP
-    # =========================================================
-
-    def _build_capability_strip(self):
-        return ft.Container(
-            padding=ft.Padding.symmetric(horizontal=18, vertical=14),
-            bgcolor="#090E17",
-            border=ft.Border.all(1, AppColors.BORDER),
-            border_radius=ft.BorderRadius.all(17),
-            content=ft.Row(
-                controls=[
-                    self._capability("12", "DSP FEATURES", AppColors.CYAN),
-                    self._separator(),
-                    self._capability("2D", "MANUAL DFT", AppColors.PURPLE),
-                    self._separator(),
-                    self._capability("PSNR", "QUALITY", AppColors.GREEN),
-                    self._separator(),
-                    self._capability("RGB", "CHANNELS", AppColors.RED),
-                    self._separator(),
-                    self._capability("YCbCr", "COLOR SPACE", AppColors.ORANGE),
-                    self._separator(),
-                    self._capability("LIVE", "PREVIEW", AppColors.PINK),
-                ],
-            ),
-        )
-
-    def _capability(self, value, label, accent):
-        return ft.Container(
-            expand=True,
-            content=ft.Column(
-                spacing=1,
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                controls=[
-                    ft.Text(
-                        value,
-                        size=15,
-                        weight=ft.FontWeight.BOLD,
-                        color=accent,
-                    ),
-                    ft.Text(
-                        label,
-                        size=7,
-                        weight=ft.FontWeight.BOLD,
-                        color=AppColors.MUTED,
-                        text_align=ft.TextAlign.CENTER,
-                    ),
-                ],
-            ),
-        )
-
-    def _separator(self):
-        return ft.Container(
-            width=1,
-            height=32,
-            bgcolor=AppColors.BORDER,
-        )
-
-    # =========================================================
-    # PUBLIC SESSION STATE
-    # =========================================================
-
-    def set_session_name(self, image_name, refresh=True):
-        self.session_name_text.value = image_name
-        self.session_name_text.color = AppColors.CYAN_LIGHT
+    def _select_workspace(self, workspace):
+        if workspace not in WORKSPACE_OPTIONS:
+            return
+        if self.on_workspace_change:
+            self.on_workspace_change(workspace)
+
+    def set_profile(self, profile, refresh=True):
+        """Refresh the visible Home identity without rebuilding the page."""
+        self.profile = profile
+        self.greeting_text.value = self._greeting_value()
+        self.workspace_name_text.value = self._workspace_name()
+
+        for item in self.workspace_menu.items:
+            item.checked = item.data == self._workspace_name()
 
         if refresh:
-            self.session_name_text.update()
+            try:
+                self.greeting_text.update()
+                self.workspace_name_text.update()
+                self.workspace_menu.update()
+            except Exception:
+                pass
 
-    # =========================================================
-    # NAVIGATION
-    # =========================================================
+    def _build(self):
+        return ft.Column(
+            spacing=12,
+            scroll=ft.ScrollMode.AUTO,
+            controls=[
+                self._header(),
+                self._hero(),
+                ft.ResponsiveRow(spacing=12, run_spacing=12, controls=[
+                    ft.Container(col={"xs": 12, "lg": 6}, content=self._workflow(True)),
+                    ft.Container(col={"xs": 12, "lg": 6}, content=self._workflow(False)),
+                ]),
+                self._recent_projects(),
+                ft.Container(height=4),
+            ],
+        )
 
-    def _navigate(self, index):
-        if self.on_navigate:
-            self.on_navigate(index)
+    def _header(self):
+        return ft.Row(
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[
+                ft.Column(spacing=4, controls=[
+                    self.greeting_text,
+                    ft.Row(spacing=9, controls=[
+                        ft.Container(width=7, height=7, bgcolor="#4DDB8A", border_radius=99),
+                        ft.Text("Workspace ready", size=10, color=AppColors.TEXT_SECONDARY),
+                        ft.Text("•", color=AppColors.MUTED_2),
+                        ft.Text("Flet Image Processor", size=10, color="#8493FF"),
+                    ]),
+                ]),
+                ft.Container(
+                    width=184, height=56,
+                    padding=ft.Padding.symmetric(horizontal=14, vertical=8),
+                    bgcolor="#B308111D", border=ft.Border.all(1, AppColors.BORDER_SOFT), border_radius=15,
+                    content=ft.Row(controls=[
+                        ft.Icon(ft.Icons.STORAGE_OUTLINED, size=21, color=AppColors.TEXT_SECONDARY),
+                        ft.Column(expand=True, spacing=0, controls=[
+                            ft.Text("Workspace", size=8, color=AppColors.MUTED),
+                            self.workspace_name_text,
+                        ]),
+                        ft.Icon(ft.Icons.CHECK_CIRCLE_OUTLINE, size=18, color="#43DE90"),
+                        self.workspace_menu,
+                    ]),
+                ),
+            ],
+        )
 
-    # =========================================================
-    # HOVER HANDLERS
-    # =========================================================
+    def _hero(self):
+        upload = ft.Container(
+            width=410, height=218, alignment=ft.Alignment.CENTER,
+            border=ft.Border.all(1, "#79869C"), border_radius=15,
+            ink=True, on_click=self.on_open_image, on_hover=self._hover_upload,
+            animate=ft.Animation(AppAnimations.FAST, ft.AnimationCurve.EASE_OUT),
+            animate_scale=ft.Animation(AppAnimations.FAST, ft.AnimationCurve.EASE_OUT),
+            scale=1.0,
+            content=ft.Column(tight=True, horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=12, controls=[
+                ft.Icon(ft.Icons.CLOUD_UPLOAD_OUTLINED, size=58, color="#6676FF"),
+                ft.Row(tight=True, spacing=4, controls=[
+                    ft.Text("Drop an image here or", size=14, color=AppColors.TEXT),
+                    ft.Text("browse", size=14, color="#8290FF"),
+                ]),
+                ft.Text("PNG, JPG, JPEG, TIFF, BMP, WebP", size=9, color=AppColors.TEXT_SECONDARY),
+                ft.Container(width=245, height=1, bgcolor="#203047"),
+                ft.Row(tight=True, spacing=8, controls=[
+                    ft.Icon(ft.Icons.OPEN_WITH, size=15, color=AppColors.MUTED),
+                    ft.Text("Drag & drop anywhere to upload", size=9, color=AppColors.MUTED),
+                ]),
+            ]),
+        )
+        return ft.Container(
+            height=314,
+            padding=ft.Padding.only(left=26, right=20, top=16, bottom=14),
+            border=ft.Border.all(1, "#293B59"), border_radius=17,
+            image=ft.DecorationImage(src=GALAXY_IMAGE, fit=ft.BoxFit.COVER, opacity=0.46),
+            bgcolor="#B407111F",
+            shadow=ft.BoxShadow(blur_radius=28, spread_radius=-10, offset=ft.Offset(0, 12), color="#400A0F22"),
+            content=ft.Row(
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[
+                    ft.Column(spacing=14, controls=[
+                        ft.Text("Your Image Processing Universe", size=23, weight=ft.FontWeight.BOLD, color=AppColors.TEXT),
+                        upload,
+                    ]),
+                    ft.Container(width=560, height=278, content=self._orbit()),
+                ],
+            ),
+        )
 
-    @staticmethod
-    def _is_hovered(value):
-        """
-        Works whether the Flet version supplies event.data
-        as a bool or as a string such as "true"/"false".
-        """
-        if isinstance(value, bool):
-            return value
+    def _orbit(self):
+        cx, cy = 280, 139
 
-        return str(value).strip().lower() in {
-            "true",
-            "1",
-            "yes",
-        }
+        # Dashed elliptical orbit rails, drawn on a canvas so they read as
+        # "orbit paths" rather than plain circles.
+        ring_paths = fc.Canvas(
+            width=560, height=278,
+            shapes=[
+                fc.Oval(
+                    x=cx - radius, y=cy - radius * ORBIT_ASPECT,
+                    width=radius * 2, height=radius * 2 * ORBIT_ASPECT,
+                    paint=ft.Paint(
+                        style=ft.PaintingStyle.STROKE,
+                        stroke_width=1,
+                        color="#4A5C82",
+                        stroke_dash_pattern=[5, 5],
+                    ),
+                )
+                for radius in (78, 112, 148)
+            ],
+        )
 
-    def _hover_orbit_node(self, e):
-        hovered = self._is_hovered(e.data)
-        accent = e.control.data["accent"]
+        self.orbit_stack = ft.Stack(width=560, height=278, controls=[ring_paths])
 
-        # Freeze the orbit while the pointer is on a feature.
-        # This makes clicking easy and avoids a "moving target".
-        self._orbit_paused = hovered
+        # Soft ambient glow sitting behind the center image, breathes gently.
+        self._glow_container = ft.Container(
+            left=cx - CENTER_GLOW_SIZE / 2,
+            top=cy - CENTER_GLOW_SIZE / 2,
+            width=CENTER_GLOW_SIZE,
+            height=CENTER_GLOW_SIZE,
+            border_radius=999,
+            animate=ft.Animation(int(ORBIT_FRAME_INTERVAL * 1000 * 3), ft.AnimationCurve.EASE_IN_OUT),
+            shadow=ft.BoxShadow(blur_radius=28, spread_radius=1, color="#426676FF"),
+        )
+        self.orbit_stack.controls.append(self._glow_container)
 
-        if hovered:
-            e.control.scale = 1.12
-            e.control.border = ft.Border.all(2.2, accent)
-            e.control.shadow = ft.BoxShadow(
-                blur_radius=30,
-                spread_radius=2,
-                color=f"55{accent[1:]}",
+        self._center_container = ft.Container(
+            left=cx - CENTER_HUB_SIZE / 2,
+            top=cy - CENTER_HUB_SIZE / 2,
+            width=CENTER_HUB_SIZE,
+            height=CENTER_HUB_SIZE,
+            border_radius=999, clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+            bgcolor="#0F1626",
+            border=ft.Border.all(1.25, "#DCE4F5"),
+            shadow=ft.BoxShadow(blur_radius=14, spread_radius=-2, color="#66000000"),
+            alignment=ft.Alignment.CENTER,
+            content=_build_orbit_spark_logo(CENTER_LOGO_SIZE),
+        )
+        self.orbit_stack.controls.append(self._center_container)
+
+        specs = [
+            ("Blur", ft.Icons.BLUR_ON, "#6280FF", -math.pi / 2),
+            ("Edges", ft.Icons.SELECT_ALL, "#A65CF6", -math.pi / 6),
+            ("DFT", ft.Icons.GRAPHIC_EQ, "#2CC8E8", math.pi / 6),
+            ("Restore", ft.Icons.AUTO_FIX_HIGH_OUTLINED, "#8B58E9", math.pi / 2),
+            ("Compress", ft.Icons.DOWNLOAD_FOR_OFFLINE_OUTLINED, "#24B8D1", math.pi + math.pi / 6),
+            ("Color", ft.Icons.WATER_DROP_OUTLINED, "#C05AA5", math.pi - math.pi / 6),
+        ]
+        for label, icon, accent, angle in specs:
+            shell = ft.Container(
+                width=49, height=49, alignment=ft.Alignment.CENTER, border_radius=99,
+                bgcolor=f"B328{accent[1:]}", border=ft.Border.all(1, accent),
+                shadow=ft.BoxShadow(blur_radius=16, color=f"55{accent[1:]}"),
+                content=ft.Icon(icon, size=21, color="#EAF1FF"),
             )
-        else:
-            e.control.scale = 1.0
-            e.control.border = ft.Border.all(1.4, accent)
-            e.control.shadow = ft.BoxShadow(
-                blur_radius=14,
-                spread_radius=0,
-                color="#26000000",
+            holder = ft.Container(
+                width=86, height=72,
+                # Smoothly interpolates between the positions set every animation
+                # tick, so the orbit reads as continuous motion, not a stepped jump.
+                animate_position=ft.Animation(ORBIT_TRANSITION_MS, ft.AnimationCurve.LINEAR),
+                content=ft.Column(spacing=2, horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                  controls=[ft.Text(label, size=10, color=AppColors.TEXT), shell]),
             )
+            self.orbit_stack.controls.append(holder)
+            self._nodes.append((holder, angle, 148))
+        self._place_nodes()
+        return self.orbit_stack
 
-        e.control.update()
+    def _place_nodes(self):
+        cx, cy = 280, 139
+        for holder, base, radius in self._nodes:
+            angle = base + self._phase
+            holder.left = cx + math.cos(angle) * radius - 43
+            holder.top = cy + math.sin(angle) * radius * ORBIT_ASPECT - 36
 
-    # =========================================================
-    # CONTINUOUS ORBIT ANIMATION
-    # =========================================================
+    def _workflow(self, spatial):
+        accent = "#9B55F1" if spatial else "#29B8E8"
+        title = "Spatial Domain" if spatial else "Frequency Domain"
+        subtitle = "Process images directly in the pixel domain." if spatial else "Analyze and filter using frequency transforms."
+        labels = ["Input", "Filter", "Enhance", "Output"] if spatial else ["Input", "DFT", "Filter", "IDFT", "Output"]
+        icons = ([ft.Icons.IMAGE_OUTLINED, ft.Icons.BLUR_ON, ft.Icons.TUNE, ft.Icons.IMAGE]
+                 if spatial else [ft.Icons.IMAGE_OUTLINED, ft.Icons.GRAPHIC_EQ, ft.Icons.RADIO_BUTTON_CHECKED, ft.Icons.GRAPHIC_EQ, ft.Icons.IMAGE])
+        steps = []
+        for i, (label, icon) in enumerate(zip(labels, icons)):
+            steps.append(ft.Column(spacing=4, horizontal_alignment=ft.CrossAxisAlignment.CENTER, controls=[
+                ft.Container(width=54, height=42, alignment=ft.Alignment.CENTER, border_radius=9,
+                             bgcolor="#132036", border=ft.Border.all(1, "#39506E"),
+                             content=ft.Icon(icon, size=21, color=accent)),
+                ft.Text(label, size=9, color=AppColors.TEXT_SECONDARY),
+            ]))
+            if i < len(labels)-1:
+                steps.append(ft.Icon(ft.Icons.ARROW_FORWARD, size=19, color=AppColors.MUTED_2))
+        return ft.Container(
+            height=188, padding=ft.Padding.symmetric(horizontal=20, vertical=14),
+            border_radius=16, border=ft.Border.all(1, accent),
+            gradient=ft.LinearGradient(colors=["#101329", "#071728"] if spatial else ["#071728", "#0A1C2D"]),
+            content=ft.Column(spacing=9, controls=[
+                ft.Row(alignment=ft.MainAxisAlignment.SPACE_BETWEEN, controls=[
+                    ft.Column(spacing=1, controls=[
+                        ft.Text(title, size=17, weight=ft.FontWeight.BOLD, color=AppColors.TEXT),
+                        ft.Text(subtitle, size=9, color=AppColors.TEXT_SECONDARY),
+                    ]),
+                    ft.Button(content="Start", icon=ft.Icons.PLAY_ARROW_OUTLINED,
+                              on_click=lambda e: self._navigate(1),
+                              bgcolor="#27387C" if spatial else "#15528A", color=AppColors.TEXT,
+                              style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=9))),
+                ]),
+                ft.Row(alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                       vertical_alignment=ft.CrossAxisAlignment.CENTER, controls=steps),
+                ft.Text("Examples: Blur, Sharpen, Edge Detect, Smooth, Morphology" if spatial else
+                        "Examples: Low-pass, High-pass, Band-stop, Notch, Homomorphic",
+                        size=8, color=AppColors.MUTED),
+            ]),
+        )
 
-    async def start_orbit_animation(self):
-        """
-        Start continuous clockwise orbital motion.
+    def _recent_projects(self):
+        self.project_count_text = ft.Text(
+            "Images opened or processed in this session",
+            size=9,
+            color=AppColors.MUTED,
+        )
+        self.projects_grid = ft.ResponsiveRow(spacing=14, run_spacing=14)
+        self._rebuild_project_cards()
+        return ft.Container(
+            padding=14, bgcolor="#D907101D", border=ft.Border.all(1, "#263650"), border_radius=16,
+            content=ft.Column(spacing=10, controls=[
+                ft.Row(alignment=ft.MainAxisAlignment.SPACE_BETWEEN, controls=[
+                    ft.Column(spacing=2, controls=[
+                        ft.Text("Recent Projects", size=14, weight=ft.FontWeight.BOLD, color=AppColors.TEXT),
+                        self.project_count_text,
+                    ]),
+                    ft.TextButton("View all", style=ft.ButtonStyle(color="#7292FF")),
+                ]),
+                self.projects_grid,
+            ]),
+        )
 
-        main_window.py should call this once, after page.add(...):
-
-            self.page.run_task(
-                self.home_view.start_orbit_animation
-            )
-
-        The feature cards move around the center while their text remains
-        upright and readable.
-        """
-
-        if self._orbit_running:
+    def _rebuild_project_cards(self):
+        if not self._recent_results:
+            self.projects_grid.controls = [
+                ft.Container(
+                    col=12,
+                    height=150,
+                    alignment=ft.Alignment.CENTER,
+                    border_radius=13,
+                    bgcolor="#0B1526",
+                    border=ft.Border.all(1, "#30405A"),
+                    content=ft.Column(
+                        tight=True,
+                        spacing=8,
+                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                        controls=[
+                            ft.Icon(ft.Icons.IMAGE_SEARCH_OUTLINED, size=34, color="#4C6281"),
+                            ft.Text(
+                                "Your recent images will appear here",
+                                size=11,
+                                weight=ft.FontWeight.W_600,
+                                color=AppColors.TEXT_SECONDARY,
+                            ),
+                            ft.Text(
+                                "Open any image — processing is optional.",
+                                size=9,
+                                color=AppColors.MUTED,
+                            ),
+                        ],
+                    ),
+                )
+            ]
+            self.project_count_text.value = "No recent images yet"
             return
 
-        self._orbit_running = True
+        self.projects_grid.controls = [
+            ft.Container(
+                col={"xs": 12, "md": 4},
+                content=self._project(**project),
+            )
+            for project in self._recent_results
+        ]
+        count = len(self._recent_results)
+        self.project_count_text.value = (
+            "1 recent image from this session"
+            if count == 1
+            else f"{count} recent images from this session"
+        )
 
-        center_x = 820 / 2
-        center_y = 500 / 2
+    def add_recent_project(
+        self,
+        image_bytes,
+        title,
+        source_name,
+        resolution,
+        fmt="PNG",
+        refresh=False,
+    ):
+        """Add an opened or processed image to the three-card session history."""
+        self._recent_results.insert(
+            0,
+            {
+                "title": title or "Processed Result",
+                "edited": f"Just now  •  {source_name or 'Untitled image'}",
+                "resolution": resolution,
+                "fmt": fmt,
+                "image": image_bytes,
+            },
+        )
+        del self._recent_results[3:]
+        self._rebuild_project_cards()
 
-        node_size = 112
-        orbit_radius_x = 300
-        orbit_radius_y = 182
-
-        while self._orbit_running:
+        if refresh:
             try:
-                if not self._orbit_paused:
-                    # About one full revolution every ~25 seconds.
-                    self._orbit_phase = (
-                        self._orbit_phase + 1.15
-                    ) % 360.0
-
-                    for item in self._orbit_nodes:
-                        angle = math.radians(
-                            item["base_angle"]
-                            + self._orbit_phase
-                        )
-
-                        node = item["control"]
-
-                        node.left = (
-                            center_x
-                            + orbit_radius_x * math.cos(angle)
-                            - node_size / 2
-                        )
-
-                        node.top = (
-                            center_y
-                            + orbit_radius_y * math.sin(angle)
-                            - node_size / 2
-                        )
-
-                    # ---------------------------------------------
-                    # Animate the central logo at the same time.
-                    # Outer and inner decorative halos rotate in
-                    # opposite directions while the actual logo stays
-                    # upright and gently pulses.
-                    # ---------------------------------------------
-
-                    if self.logo_rotor_outer is not None:
-                        self.logo_rotor_outer.rotate = math.radians(
-                            self._orbit_phase * 1.6
-                        )
-
-                    if self.logo_rotor_inner is not None:
-                        self.logo_rotor_inner.rotate = math.radians(
-                            -self._orbit_phase * 1.15
-                        )
-
-                    if self.logo_core is not None:
-                        pulse = (
-                            1.0
-                            + 0.025
-                            * (
-                                0.5
-                                + 0.5
-                                * math.sin(
-                                    math.radians(
-                                        self._orbit_phase * 3.0
-                                    )
-                                )
-                            )
-                        )
-
-                        self.logo_core.scale = pulse
-
-                    # ---------------------------------------------
-                    # HERO SIGNAL WORKSPACE FLOW
-                    # ---------------------------------------------
-
-                    # Faster, smaller steps make the motion feel continuous.
-                    phase_speed = (
-                        8.0
-                        if self._signal_hovered
-                        else 5.2
-                    )
-
-                    scan_speed = (
-                        2.8
-                        if self._signal_hovered
-                        else 1.75
-                    )
-
-                    amplitude_boost = (
-                        1.15
-                        if self._signal_hovered
-                        else 1.0
-                    )
-
-                    self._signal_phase = (
-                        self._signal_phase + phase_speed
-                    ) % 360.0
-
-                    self._signal_scan_phase = (
-                        self._signal_scan_phase + scan_speed
-                    ) % 100.0
-
-                    if self._signal_bars:
-                        for index, bar in enumerate(
-                            self._signal_bars
-                        ):
-                            phase = math.radians(
-                                self._signal_phase
-                                + index * 22
-                            )
-
-                            # Three harmonics create a more organic wave.
-                            wave = (
-                                0.58 * math.sin(phase)
-                                + 0.27 * math.sin(
-                                    phase * 1.85 + 0.65
-                                )
-                                + 0.15 * math.sin(
-                                    phase * 3.2 + index * 0.11
-                                )
-                            )
-
-                            normalized = max(
-                                0.0,
-                                min(
-                                    1.0,
-                                    (wave + 1.0) / 2.0,
-                                ),
-                            )
-
-                            bar.height = (
-                                22
-                                + normalized
-                                * 78
-                                * amplitude_boost
-                            )
-
-                            bar.opacity = (
-                                0.52
-                                + normalized * 0.48
-                            )
-
-                    # One-way scanner rather than a back-and-forth sweep.
-                    if self.signal_scan_line is not None:
-                        self.signal_scan_line.left = (
-                            8
-                            + (
-                                self._signal_scan_phase
-                                / 100.0
-                            )
-                            * 585
-                        )
-
-                    # Moving energy particles.
-                    for index, particle in enumerate(
-                        self._signal_particles
-                    ):
-                        progress = (
-                            (
-                                self._signal_scan_phase
-                                + index * 22
-                            )
-                            % 100.0
-                        ) / 100.0
-
-                        particle.left = (
-                            14 + progress * 575
-                        )
-
-                        particle.top = (
-                            18
-                            + 34
-                            * (
-                                0.5
-                                + 0.5
-                                * math.sin(
-                                    math.radians(
-                                        self._signal_phase
-                                        + index * 70
-                                    )
-                                )
-                            )
-                        )
-
-                        particle.opacity = (
-                            0.25
-                            + 0.55
-                            * (
-                                0.5
-                                + 0.5
-                                * math.sin(
-                                    math.radians(
-                                        self._signal_phase * 1.4
-                                        + index * 80
-                                    )
-                                )
-                            )
-                        )
-
-                    # Smooth LIVE pulse.
-                    if self.signal_live_dot is not None:
-                        live_wave = (
-                            0.5
-                            + 0.5
-                            * math.sin(
-                                math.radians(
-                                    self._signal_phase * 2.0
-                                )
-                            )
-                        )
-
-                        self.signal_live_dot.scale = (
-                            0.86 + live_wave * 0.52
-                        )
-
-                    # Slow ambient hero light movement.
-                    ambient_wave = (
-                        0.5
-                        + 0.5
-                        * math.sin(
-                            math.radians(
-                                self._signal_phase * 0.7
-                            )
-                        )
-                    )
-
-                    if self.hero_glow_left is not None:
-                        self.hero_glow_left.scale = (
-                            0.96 + ambient_wave * 0.12
-                        )
-                        self.hero_glow_left.opacity = (
-                            0.35 + ambient_wave * 0.30
-                        )
-
-                    if self.hero_glow_right is not None:
-                        inverse_wave = 1.0 - ambient_wave
-                        self.hero_glow_right.scale = (
-                            0.96 + inverse_wave * 0.13
-                        )
-                        self.hero_glow_right.opacity = (
-                            0.34 + inverse_wave * 0.30
-                        )
-
-                    if self.orbit_stack is not None:
-                        self.orbit_stack.update()
-
-                    if self.signal_console is not None:
-                        self.signal_console.update()
-
-                    if self.hero_glow_left is not None:
-                        self.hero_glow_left.update()
-
-                    if self.hero_glow_right is not None:
-                        self.hero_glow_right.update()
-
-                # ~12.5 updates per second. The implicit animations interpolate
-                # between updates, producing smooth motion without excessive UI load.
-                await asyncio.sleep(0.08)
-
+                self.project_count_text.update()
+                self.projects_grid.update()
             except Exception:
-                # The Home page can be temporarily detached while the user
-                # is inside another workspace. Keep the task alive safely.
-                await asyncio.sleep(0.5)
+                pass
+
+    def add_processed_result(
+        self,
+        image_bytes,
+        title,
+        source_name,
+        resolution,
+        fmt="PNG",
+        refresh=False,
+    ):
+        """Backward-compatible alias for older main_window.py versions."""
+        self.add_recent_project(
+            image_bytes=image_bytes,
+            title=title,
+            source_name=source_name,
+            resolution=resolution,
+            fmt=fmt,
+            refresh=refresh,
+        )
+
+    def _project(self, title, edited, resolution, fmt, image):
+        # `image` may be a bundled asset path (str) or raw processed bytes —
+        # ft.Image.src accepts either directly in this Flet version.
+        return ft.Container(
+            height=282, bgcolor="#0B1526", border=ft.Border.all(1, "#30405A"), border_radius=13,
+            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+            animate=ft.Animation(AppAnimations.FAST, ft.AnimationCurve.EASE_OUT),
+            animate_scale=ft.Animation(AppAnimations.FAST, ft.AnimationCurve.EASE_OUT),
+            shadow=ft.BoxShadow(blur_radius=0, spread_radius=0, offset=ft.Offset(0, 8), color="#00000000"),
+            on_hover=self._hover_project,
+            ink=True,
+            on_click=lambda e: self._navigate(1),
+            content=ft.Column(spacing=0, controls=[
+                ft.Image(src=image, height=165, width=600, fit=ft.BoxFit.COVER,
+                         gapless_playback=True,
+                         error_content=ft.Container(
+                             alignment=ft.Alignment.CENTER,
+                             bgcolor="#0F1C31",
+                             content=ft.Icon(ft.Icons.BROKEN_IMAGE_OUTLINED, color=AppColors.MUTED),
+                         )),
+                ft.Container(expand=True, padding=11, content=ft.Column(spacing=7, controls=[
+                    ft.Row(controls=[
+                        ft.Column(expand=True, spacing=4, controls=[
+                            ft.Text(title, size=11, weight=ft.FontWeight.W_600, color=AppColors.TEXT),
+                            ft.Text(edited, size=9, color=AppColors.MUTED),
+                        ]),
+                        ft.Icon(ft.Icons.MORE_VERT, size=18, color=AppColors.TEXT_SECONDARY),
+                    ]),
+                    ft.Row(spacing=7, controls=[self._chip(resolution), self._chip(fmt)]),
+                ])),
+            ]),
+        )
+
+    @staticmethod
+    def _chip(text):
+        return ft.Container(padding=ft.Padding.symmetric(horizontal=9, vertical=5), border_radius=6,
+                            bgcolor="#111D31", border=ft.Border.all(1, "#293950"),
+                            content=ft.Text(text, size=8, color=AppColors.TEXT_SECONDARY))
+
+    @staticmethod
+    def _hover_project(e):
+        hovered = str(e.data).lower() == "true"
+        e.control.scale = 1.016 if hovered else 1.0
+        e.control.border = ft.Border.all(1, "#4B6EFF" if hovered else "#30405A")
+        e.control.shadow = ft.BoxShadow(
+            blur_radius=24 if hovered else 0,
+            spread_radius=-4 if hovered else 0,
+            offset=ft.Offset(0, 10),
+            color="#4D2A44FF" if hovered else "#00000000",
+        )
+        e.control.update()
+
+    @staticmethod
+    def _hover_upload(e):
+        hovered = str(e.data).lower() == "true"
+        e.control.bgcolor = "#3A152743" if hovered else None
+        e.control.border = ft.Border.all(1, "#7F8FFF" if hovered else "#79869C")
+        e.control.scale = 1.012 if hovered else 1.0
+        e.control.update()
+
+    async def start_orbit_animation(self):
+        if self._orbit_running:
+            return
+        self._orbit_running = True
+        last = time.monotonic()
+        glow_phase = 0.0
+        try:
+            while self._orbit_running:
+                await asyncio.sleep(ORBIT_FRAME_INTERVAL)
+                now = time.monotonic()
+                dt = now - last
+                last = now
+
+                # Advance by real elapsed time rather than a fixed step, so the
+                # motion stays smooth even if a frame is delayed.
+                self._phase += ORBIT_ANGULAR_SPEED * dt
+                self._place_nodes()
+
+                # Gentle breathing glow behind the center thumbnail.
+                glow_phase += ORBIT_GLOW_SPEED * dt
+                pulse = (math.sin(glow_phase) + 1) / 2  # 0..1
+                if self._glow_container is not None:
+                    intensity = 20 + pulse * 12
+                    self._glow_container.shadow = ft.BoxShadow(
+                        blur_radius=intensity, spread_radius=1, color="#426676FF",
+                    )
+
+                try:
+                    self.orbit_stack.update()
+                except Exception:
+                    pass
+        finally:
+            self._orbit_running = False
 
     def stop_orbit_animation(self):
         self._orbit_running = False
 
-    def _hover_signal_console(self, e):
-        hovered = self._is_hovered(e.data)
-        self._signal_hovered = hovered
+    def set_session_name(self, image_name, refresh=True):
+        self.session_name_text.value = image_name or "No active image"
+        if refresh:
+            try:
+                self.session_name_text.update()
+            except Exception:
+                pass
 
-        if hovered:
-            # Lift the console very slightly and make the live signal more
-            # energetic. The animation loop also increases wave/scan speed.
-            e.control.scale = 1.018
-            e.control.offset = ft.Offset(0, -0.012)
-
-            e.control.border = ft.Border.all(
-                1.5,
-                AppColors.CYAN,
-            )
-
-            e.control.shadow = ft.BoxShadow(
-                blur_radius=34,
-                spread_radius=1,
-                color="#4822D3EE",
-                offset=ft.Offset(0, 10),
-            )
-
-            if self.signal_frequency_text is not None:
-                self.signal_frequency_text.value = (
-                    "INTERACTIVE SIGNAL • CLICK TO OPEN FREQUENCY LAB  →"
-                )
-                self.signal_frequency_text.color = (
-                    AppColors.WHITE
-                )
-        else:
-            e.control.scale = 1.0
-            e.control.offset = ft.Offset(0, 0)
-
-            e.control.border = ft.Border.all(
-                1,
-                "#34435F",
-            )
-
-            e.control.shadow = ft.BoxShadow(
-                blur_radius=20,
-                spread_radius=0,
-                color="#22000000",
-                offset=ft.Offset(0, 0),
-            )
-
-            if self.signal_frequency_text is not None:
-                self.signal_frequency_text.value = (
-                    "LIVE SIGNAL • 2D IMAGE DOMAIN"
-                )
-                self.signal_frequency_text.color = (
-                    AppColors.CYAN_LIGHT
-                )
-
-        e.control.update()
+    def _navigate(self, index):
+        if self.on_navigate:
+            self.on_navigate(index)

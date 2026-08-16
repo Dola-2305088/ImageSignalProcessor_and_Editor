@@ -65,7 +65,7 @@ class CompressionView:
 
         header = SectionHeader(
 
-            badge="FEATURE 5",
+            badge="FEATURE 2",
 
             title="Compression Explorer",
 

@@ -12,12 +12,10 @@ from ui.theme import (
 class TopBar:
     def __init__(
         self,
-        on_toggle_sidebar,
         on_open_image,
         on_save_result,
         on_reset_result,
     ):
-        self.on_toggle_sidebar = on_toggle_sidebar
         self.on_open_image = on_open_image
         self.on_save_result = on_save_result
         self.on_reset_result = on_reset_result
@@ -40,38 +38,6 @@ class TopBar:
     # =========================================================
 
     def _build(self):
-
-        # -----------------------------------------------------
-        # MENU BUTTON
-        # -----------------------------------------------------
-
-        self.menu_shell = ft.Container(
-            width=42,
-            height=42,
-            border_radius=13,
-            alignment=ft.Alignment.CENTER,
-            bgcolor="#00000000",
-            border=ft.Border.all(
-                1,
-                "#00000000",
-            ),
-            animate_scale=ft.Animation(
-                duration=160,
-                curve=ft.AnimationCurve.EASE_OUT,
-            ),
-            animate=ft.Animation(
-                duration=160,
-                curve=ft.AnimationCurve.EASE_OUT,
-            ),
-            on_hover=self._hover_menu,
-            content=ft.IconButton(
-                icon=ft.Icons.MENU,
-                icon_color=AppColors.TEXT,
-                icon_size=23,
-                tooltip="Collapse / expand sidebar",
-                on_click=self.on_toggle_sidebar,
-            ),
-        )
 
         # -----------------------------------------------------
         # APP LOGO
@@ -321,12 +287,6 @@ class TopBar:
         main_row = ft.Row(
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
             controls=[
-                self.menu_shell,
-
-                ft.Container(
-                    width=8,
-                ),
-
                 brand_area,
 
                 ft.Container(
@@ -473,40 +433,6 @@ class TopBar:
             "1",
             "yes",
         }
-
-    # ---------------------------------------------------------
-    # MENU HOVER
-    # ---------------------------------------------------------
-
-    def _hover_menu(self, e):
-
-        hovered = self._is_hovered(
-            e.data
-        )
-
-        if hovered:
-
-            e.control.scale = 1.08
-
-            e.control.bgcolor = "#18243A"
-
-            e.control.border = ft.Border.all(
-                1,
-                "#304A6B",
-            )
-
-        else:
-
-            e.control.scale = 1.0
-
-            e.control.bgcolor = "#00000000"
-
-            e.control.border = ft.Border.all(
-                1,
-                "#00000000",
-            )
-
-        e.control.update()
 
     # ---------------------------------------------------------
     # LOGO HOVER

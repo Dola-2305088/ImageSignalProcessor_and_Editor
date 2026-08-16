@@ -88,7 +88,7 @@ class FrequencyView:
 
         header = SectionHeader(
 
-            badge="FEATURE 4",
+            badge="FEATURE 1",
 
             title="Frequency Editor",
 

@@ -11,7 +11,7 @@ class AppColors:
     # MAIN BACKGROUNDS
     # --------------------------------------------------------
 
-    BG = "#080B12"
+    BG = "#050B14"
 
     SIDEBAR = "#0D121E"
 
@@ -158,9 +158,9 @@ class AppLayout:
     # SIDEBAR
     # --------------------------------------------------------
 
-    SIDEBAR_EXPANDED_WIDTH = 230
+    SIDEBAR_EXPANDED_WIDTH = 218
 
-    SIDEBAR_COLLAPSED_WIDTH = 92
+    SIDEBAR_COLLAPSED_WIDTH = 74
 
 
     # --------------------------------------------------------

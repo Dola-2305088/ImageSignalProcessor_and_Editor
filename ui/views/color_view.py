@@ -81,7 +81,7 @@ class ColorView:
 
         header = SectionHeader(
 
-            badge="FEATURE 12",
+            badge="FEATURE 5",
 
             title="Color Intelligence Lab",
 
