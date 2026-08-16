@@ -122,6 +122,13 @@ class HomeView:
         self._center_container = None
         self._glow_container = None
 
+        # Animated Spatial/Frequency workflow state.
+        # Both workflow cards are animated from the existing Home animation loop,
+        # so no extra background task is required.
+        self._workflow_tracks = []
+        self._workflow_elapsed = 0.0
+        self._workflow_step_seconds = 0.72
+
         # Live header values. These keep the approved Home UI unchanged while
         # allowing Settings to update what the user actually sees.
         self.greeting_text = ft.Text(
@@ -378,43 +385,322 @@ class HomeView:
 
     def _workflow(self, spatial):
         accent = "#9B55F1" if spatial else "#29B8E8"
+        accent_soft = "#35245B" if spatial else "#153D55"
+        accent_border = "#B974FF" if spatial else "#63D8FF"
+
         title = "Spatial Domain" if spatial else "Frequency Domain"
-        subtitle = "Process images directly in the pixel domain." if spatial else "Analyze and filter using frequency transforms."
-        labels = ["Input", "Filter", "Enhance", "Output"] if spatial else ["Input", "DFT", "Filter", "IDFT", "Output"]
-        icons = ([ft.Icons.IMAGE_OUTLINED, ft.Icons.BLUR_ON, ft.Icons.TUNE, ft.Icons.IMAGE]
-                 if spatial else [ft.Icons.IMAGE_OUTLINED, ft.Icons.GRAPHIC_EQ, ft.Icons.RADIO_BUTTON_CHECKED, ft.Icons.GRAPHIC_EQ, ft.Icons.IMAGE])
-        steps = []
-        for i, (label, icon) in enumerate(zip(labels, icons)):
-            steps.append(ft.Column(spacing=4, horizontal_alignment=ft.CrossAxisAlignment.CENTER, controls=[
-                ft.Container(width=54, height=42, alignment=ft.Alignment.CENTER, border_radius=9,
-                             bgcolor="#132036", border=ft.Border.all(1, "#39506E"),
-                             content=ft.Icon(icon, size=21, color=accent)),
-                ft.Text(label, size=9, color=AppColors.TEXT_SECONDARY),
-            ]))
-            if i < len(labels)-1:
-                steps.append(ft.Icon(ft.Icons.ARROW_FORWARD, size=19, color=AppColors.MUTED_2))
-        return ft.Container(
-            height=188, padding=ft.Padding.symmetric(horizontal=20, vertical=14),
-            border_radius=16, border=ft.Border.all(1, accent),
-            gradient=ft.LinearGradient(colors=["#101329", "#071728"] if spatial else ["#071728", "#0A1C2D"]),
-            content=ft.Column(spacing=9, controls=[
-                ft.Row(alignment=ft.MainAxisAlignment.SPACE_BETWEEN, controls=[
-                    ft.Column(spacing=1, controls=[
-                        ft.Text(title, size=17, weight=ft.FontWeight.BOLD, color=AppColors.TEXT),
-                        ft.Text(subtitle, size=9, color=AppColors.TEXT_SECONDARY),
-                    ]),
-                    ft.Button(content="Start", icon=ft.Icons.PLAY_ARROW_OUTLINED,
-                              on_click=lambda e: self._navigate(1),
-                              bgcolor="#27387C" if spatial else "#15528A", color=AppColors.TEXT,
-                              style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=9))),
-                ]),
-                ft.Row(alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                       vertical_alignment=ft.CrossAxisAlignment.CENTER, controls=steps),
-                ft.Text("Examples: Blur, Sharpen, Edge Detect, Smooth, Morphology" if spatial else
-                        "Examples: Low-pass, High-pass, Band-stop, Notch, Homomorphic",
-                        size=8, color=AppColors.MUTED),
-            ]),
+        subtitle = (
+            "Process images directly in the pixel domain."
+            if spatial
+            else "Analyze and filter using frequency transforms."
         )
+
+        labels = (
+            ["Input", "Filter", "Enhance", "Output"]
+            if spatial
+            else ["Input", "DFT", "Filter", "IDFT", "Output"]
+        )
+
+        icons = (
+            [
+                ft.Icons.IMAGE_OUTLINED,
+                ft.Icons.BLUR_ON,
+                ft.Icons.TUNE,
+                ft.Icons.IMAGE,
+            ]
+            if spatial
+            else [
+                ft.Icons.IMAGE_OUTLINED,
+                ft.Icons.GRAPHIC_EQ,
+                ft.Icons.RADIO_BUTTON_CHECKED,
+                ft.Icons.GRAPHIC_EQ,
+                ft.Icons.IMAGE,
+            ]
+        )
+
+        stage_shells = []
+        stage_icons = []
+        stage_labels = []
+        arrows = []
+        row_controls = []
+
+        for i, (label, icon) in enumerate(zip(labels, icons)):
+            icon_control = ft.Icon(
+                icon,
+                size=21,
+                color=accent,
+            )
+
+            shell = ft.Container(
+                width=54,
+                height=42,
+                alignment=ft.Alignment.CENTER,
+                border_radius=9,
+                bgcolor="#132036",
+                border=ft.Border.all(1, "#39506E"),
+                shadow=ft.BoxShadow(
+                    blur_radius=0,
+                    spread_radius=0,
+                    color="#00000000",
+                ),
+                scale=1.0,
+                animate=ft.Animation(
+                    220,
+                    ft.AnimationCurve.EASE_OUT,
+                ),
+                animate_scale=ft.Animation(
+                    220,
+                    ft.AnimationCurve.EASE_OUT_BACK,
+                ),
+                content=icon_control,
+            )
+
+            label_control = ft.Text(
+                label,
+                size=9,
+                color=AppColors.TEXT_SECONDARY,
+                weight=ft.FontWeight.W_500,
+            )
+
+            stage = ft.Column(
+                spacing=4,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[
+                    shell,
+                    label_control,
+                ],
+            )
+
+            row_controls.append(stage)
+            stage_shells.append(shell)
+            stage_icons.append(icon_control)
+            stage_labels.append(label_control)
+
+            if i < len(labels) - 1:
+                arrow_icon = ft.Icon(
+                    ft.Icons.ARROW_FORWARD,
+                    size=19,
+                    color=AppColors.MUTED_2,
+                )
+
+                arrow_holder = ft.Container(
+                    width=24,
+                    height=28,
+                    alignment=ft.Alignment.CENTER,
+                    opacity=0.44,
+                    animate_opacity=ft.Animation(
+                        220,
+                        ft.AnimationCurve.EASE_OUT,
+                    ),
+                    content=arrow_icon,
+                )
+
+                row_controls.append(arrow_holder)
+                arrows.append(arrow_holder)
+
+        flow_row = ft.Row(
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=row_controls,
+        )
+
+        card = ft.Container(
+            height=188,
+            padding=ft.Padding.symmetric(
+                horizontal=20,
+                vertical=14,
+            ),
+            border_radius=16,
+            border=ft.Border.all(1, accent),
+            gradient=ft.LinearGradient(
+                colors=(
+                    ["#101329", "#071728"]
+                    if spatial
+                    else ["#071728", "#0A1C2D"]
+                )
+            ),
+            shadow=ft.BoxShadow(
+                blur_radius=12,
+                spread_radius=-6,
+                offset=ft.Offset(0, 7),
+                color=f"28{accent[1:]}",
+            ),
+            scale=1.0,
+            animate=ft.Animation(
+                220,
+                ft.AnimationCurve.EASE_OUT,
+            ),
+            animate_scale=ft.Animation(
+                220,
+                ft.AnimationCurve.EASE_OUT_BACK,
+            ),
+            on_hover=self._hover_workflow,
+            data={
+                "accent": accent,
+                "rest_shadow": f"28{accent[1:]}",
+            },
+            content=ft.Column(
+                spacing=9,
+                controls=[
+                    ft.Row(
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        controls=[
+                            ft.Column(
+                                spacing=1,
+                                controls=[
+                                    ft.Text(
+                                        title,
+                                        size=17,
+                                        weight=ft.FontWeight.BOLD,
+                                        color=AppColors.TEXT,
+                                    ),
+                                    ft.Text(
+                                        subtitle,
+                                        size=9,
+                                        color=AppColors.TEXT_SECONDARY,
+                                    ),
+                                ],
+                            ),
+                            ft.Button(
+                                content="Start",
+                                icon=ft.Icons.PLAY_ARROW_OUTLINED,
+                                on_click=lambda e: self._navigate(1),
+                                bgcolor="#27387C" if spatial else "#15528A",
+                                color=AppColors.TEXT,
+                                style=ft.ButtonStyle(
+                                    shape=ft.RoundedRectangleBorder(
+                                        radius=9,
+                                    )
+                                ),
+                            ),
+                        ],
+                    ),
+                    flow_row,
+                    ft.Text(
+                        (
+                            "Examples: Blur, Sharpen, Edge Detect, Smooth, Morphology"
+                            if spatial
+                            else "Examples: Low-pass, High-pass, Band-stop, Notch, Homomorphic"
+                        ),
+                        size=8,
+                        color=AppColors.MUTED,
+                    ),
+                ],
+            ),
+        )
+
+        self._workflow_tracks.append(
+            {
+                "spatial": spatial,
+                "accent": accent,
+                "accent_soft": accent_soft,
+                "accent_border": accent_border,
+                "shells": stage_shells,
+                "icons": stage_icons,
+                "labels": stage_labels,
+                "arrows": arrows,
+                "row": flow_row,
+                "last_step": -1,
+            }
+        )
+
+        # Make the first frame meaningful before the async animation starts.
+        self._set_workflow_step(self._workflow_tracks[-1], 0)
+
+        return card
+
+    @staticmethod
+    def _hover_workflow(e):
+        hovered = str(e.data).strip().lower() == "true"
+        accent = (e.control.data or {}).get("accent", "#6280FF")
+        rest_shadow = (e.control.data or {}).get(
+            "rest_shadow",
+            f"28{accent[1:]}",
+        )
+
+        e.control.scale = 1.012 if hovered else 1.0
+        e.control.shadow = ft.BoxShadow(
+            blur_radius=25 if hovered else 12,
+            spread_radius=-3 if hovered else -6,
+            offset=ft.Offset(0, 10 if hovered else 7),
+            color=f"55{accent[1:]}" if hovered else rest_shadow,
+        )
+
+        e.control.update()
+
+    def _set_workflow_step(self, track, active_index):
+        """Light one processing stage and its outgoing signal arrow."""
+        if track["last_step"] == active_index:
+            return
+
+        track["last_step"] = active_index
+        accent = track["accent"]
+        accent_soft = track["accent_soft"]
+        accent_border = track["accent_border"]
+
+        for i, shell in enumerate(track["shells"]):
+            active = i == active_index
+
+            shell.scale = 1.10 if active else 1.0
+            shell.bgcolor = accent_soft if active else "#132036"
+            shell.border = ft.Border.all(
+                1.4 if active else 1,
+                accent_border if active else "#39506E",
+            )
+            shell.shadow = ft.BoxShadow(
+                blur_radius=18 if active else 0,
+                spread_radius=0,
+                color=f"70{accent[1:]}" if active else "#00000000",
+            )
+
+            track["icons"][i].color = (
+                "#F7FAFF"
+                if active
+                else accent
+            )
+
+            track["labels"][i].color = (
+                "#F7FAFF"
+                if active
+                else AppColors.TEXT_SECONDARY
+            )
+            track["labels"][i].weight = (
+                ft.FontWeight.BOLD
+                if active
+                else ft.FontWeight.W_500
+            )
+
+        # The arrow immediately after the active stage becomes the moving
+        # "signal" indicator. On the final output stage no arrow is active.
+        for i, arrow in enumerate(track["arrows"]):
+            active_arrow = i == active_index and active_index < len(track["arrows"])
+            arrow.opacity = 1.0 if active_arrow else 0.38
+            arrow.content.color = accent if active_arrow else AppColors.MUTED_2
+
+        try:
+            track["row"].update()
+        except Exception:
+            pass
+
+    def _advance_workflow_animation(self, dt):
+        if not self._workflow_tracks:
+            return
+
+        self._workflow_elapsed += dt
+
+        for track in self._workflow_tracks:
+            count = len(track["shells"])
+
+            # Offset Frequency by half a step so both cards do not pulse
+            # in exact lock-step.
+            offset = 0.0 if track["spatial"] else self._workflow_step_seconds * 0.5
+
+            active = int(
+                (self._workflow_elapsed + offset)
+                / self._workflow_step_seconds
+            ) % count
+
+            self._set_workflow_step(track, active)
 
     def _recent_projects(self):
         self.project_count_text = ft.Text(
@@ -612,6 +898,10 @@ class HomeView:
                 # motion stays smooth even if a frame is delayed.
                 self._phase += ORBIT_ANGULAR_SPEED * dt
                 self._place_nodes()
+
+                # Animate Spatial/Frequency workflow signal flow using the
+                # same timing loop as the orbital animation.
+                self._advance_workflow_animation(dt)
 
                 # Gentle breathing glow behind the center thumbnail.
                 glow_phase += ORBIT_GLOW_SPEED * dt

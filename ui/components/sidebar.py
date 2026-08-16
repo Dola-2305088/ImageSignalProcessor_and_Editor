@@ -14,7 +14,7 @@ NAV_ITEMS = [
 
 
 class Sidebar:
-    """Persistent galaxy navigation with functional Settings and About actions."""
+    """Persistent mockup-style navigation with its own collapse/expand control."""
 
     def __init__(
         self,
@@ -27,11 +27,18 @@ class Sidebar:
         self.profile = profile
         self.on_edit_profile = on_edit_profile
         self.on_show_about = on_show_about
+
         self.extended = True
         self.selected_index = 0
+
         self.items = []
         self.labels = []
+
         self.control = self._build()
+
+    # =========================================================
+    # BUILD
+    # =========================================================
 
     def _build(self):
         nav = ft.Column(
@@ -44,9 +51,16 @@ class Sidebar:
 
         return ft.Container(
             width=AppLayout.SIDEBAR_EXPANDED_WIDTH,
-            padding=ft.Padding.only(left=12, right=12, top=10, bottom=12),
+            padding=ft.Padding.only(
+                left=12,
+                right=12,
+                top=10,
+                bottom=12,
+            ),
             bgcolor="#07101C",
-            border=ft.Border.only(right=ft.BorderSide(1, "#1D2A3E")),
+            border=ft.Border.only(
+                right=ft.BorderSide(1, "#1D2A3E"),
+            ),
             animate=ft.Animation(
                 AppAnimations.NORMAL,
                 ft.AnimationCurve.EASE_OUT,
@@ -55,33 +69,41 @@ class Sidebar:
                 expand=True,
                 spacing=0,
                 controls=[
+                    # -----------------------------------------
+                    # SIDEBAR OWNED COLLAPSE / EXPAND CONTROLS
+                    # -----------------------------------------
                     ft.Container(
                         height=54,
                         content=ft.Row(
                             controls=[
                                 ft.IconButton(
-                                    ft.Icons.MENU,
+                                    icon=ft.Icons.MENU,
                                     icon_size=21,
                                     icon_color=AppColors.TEXT_SECONDARY,
+                                    tooltip="Collapse / expand sidebar",
                                     on_click=lambda e: self.toggle(),
                                 ),
                                 ft.Container(expand=True),
                                 ft.IconButton(
-                                    ft.Icons.CHEVRON_LEFT,
+                                    icon=ft.Icons.CHEVRON_LEFT,
                                     icon_size=18,
                                     icon_color=AppColors.TEXT_SECONDARY,
                                     bgcolor="#101A2B",
+                                    tooltip="Collapse / expand sidebar",
                                     on_click=lambda e: self.toggle(),
                                 ),
-                            ]
+                            ],
                         ),
                     ),
+
                     nav,
+
                     ft.Container(
                         height=1,
                         bgcolor="#1C2A3E",
                         margin=ft.Margin.only(top=10, bottom=10),
                     ),
+
                     self._simple_item(
                         "Settings",
                         ft.Icons.SETTINGS_OUTLINED,
@@ -92,11 +114,17 @@ class Sidebar:
                         ft.Icons.INFO_OUTLINE,
                         self._show_about,
                     ),
+
                     ft.Container(expand=True),
+
                     self._profile(),
                 ],
             ),
         )
+
+    # =========================================================
+    # NAVIGATION ITEM
+    # =========================================================
 
     def _nav_item(self, index, label, icon, selected_icon):
         selected = index == self.selected_index
@@ -156,7 +184,12 @@ class Sidebar:
 
         self.items.append(item)
         self.labels.append(label_holder)
+
         return item
+
+    # =========================================================
+    # SIMPLE ITEM
+    # =========================================================
 
     def _simple_item(self, label, icon, on_click=None):
         holder = ft.Container(
@@ -194,6 +227,10 @@ class Sidebar:
                 ],
             ),
         )
+
+    # =========================================================
+    # PROFILE
+    # =========================================================
 
     def _profile(self):
         self.profile_name_text = ft.Text(
@@ -265,18 +302,39 @@ class Sidebar:
             ),
         )
 
+    # =========================================================
+    # HOVER
+    # =========================================================
+
     @staticmethod
     def _hover_simple(e):
         rest_bg = (e.control.data or {}).get(
             "rest_bg",
             "#00000000",
         )
+
         e.control.bgcolor = (
             "#101D31"
             if str(e.data).lower() == "true"
             else rest_bg
         )
+
         e.control.update()
+
+    def _hover(self, e):
+        item = e.control
+
+        if item.data["index"] != self.selected_index:
+            item.bgcolor = (
+                "#101D31"
+                if str(e.data).lower() == "true"
+                else "#00000000"
+            )
+            item.update()
+
+    # =========================================================
+    # SETTINGS / ABOUT
+    # =========================================================
 
     def _edit_profile(self, e):
         if self.on_edit_profile:
@@ -288,6 +346,7 @@ class Sidebar:
 
     def set_profile(self, profile, refresh=True):
         self.profile = profile
+
         self.profile_name_text.value = profile.name
         self.profile_plan_text.value = profile.plan
         self.profile_avatar_text.value = profile.initials
@@ -300,17 +359,14 @@ class Sidebar:
             except Exception:
                 pass
 
-    def _hover(self, e):
-        item = e.control
-        if item.data["index"] != self.selected_index:
-            item.bgcolor = (
-                "#101D31"
-                if str(e.data).lower() == "true"
-                else "#00000000"
-            )
-            item.update()
+    # =========================================================
+    # SELECTION
+    # =========================================================
 
     def _select(self, index):
+        if not 0 <= index < len(NAV_ITEMS):
+            return
+
         self.selected_index = index
         self._refresh_selection()
 
@@ -322,21 +378,31 @@ class Sidebar:
             selected = i == self.selected_index
             data = item.data
 
-            item.bgcolor = "#17284C" if selected else "#00000000"
+            item.bgcolor = (
+                "#17284C"
+                if selected
+                else "#00000000"
+            )
+
             item.border = ft.Border.all(
                 1,
-                "#314A84" if selected else "#00000000",
+                "#314A84"
+                if selected
+                else "#00000000",
             )
+
             data["icon_control"].name = (
                 data["selected_icon"]
                 if selected
                 else data["icon"]
             )
+
             data["icon_control"].color = (
                 "#EAF0FF"
                 if selected
                 else AppColors.TEXT_SECONDARY
             )
+
             data["label_control"].color = (
                 "#F4F6FD"
                 if selected
@@ -348,8 +414,13 @@ class Sidebar:
         except Exception:
             pass
 
+    # =========================================================
+    # COLLAPSE / EXPAND
+    # =========================================================
+
     def toggle(self):
         self.extended = not self.extended
+
         self.control.width = (
             AppLayout.SIDEBAR_EXPANDED_WIDTH
             if self.extended
@@ -364,6 +435,10 @@ class Sidebar:
         except Exception:
             pass
 
+    # =========================================================
+    # PUBLIC API
+    # =========================================================
+
     def get_selected_index(self):
         return self.selected_index
 
@@ -373,7 +448,12 @@ class Sidebar:
             self._refresh_selection()
 
     def get_feature_name(self, index=None):
-        index = self.selected_index if index is None else index
+        index = (
+            self.selected_index
+            if index is None
+            else index
+        )
+
         return (
             NAV_ITEMS[index][0]
             if 0 <= index < len(NAV_ITEMS)
