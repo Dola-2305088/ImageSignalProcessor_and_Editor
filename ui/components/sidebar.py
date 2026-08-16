@@ -367,7 +367,6 @@ class Sidebar:
 
     def _select(self, index):
         if not 0 <= index < len(NAV_ITEMS):
-        if not 0 <= index < len(NAV_ITEMS):
             return
         self.selected_index = index
         self._refresh_selection()

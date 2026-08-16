@@ -127,7 +127,11 @@ class HomeView:
         # so no extra background task is required.
         self._workflow_tracks = []
         self._workflow_elapsed = 0.0
-        self._workflow_step_seconds = 0.72
+
+        # Seconds spent travelling from one processing stage to the next.
+        # A full cycle is intentionally slow and fluid instead of "blinking".
+        self._workflow_segment_seconds = 0.95
+        self._workflow_end_hold_seconds = 0.75
 
         # Live header values. These keep the approved Home UI unchanged while
         # allowing Settings to update what the user actually sees.
@@ -383,10 +387,32 @@ class HomeView:
             holder.left = cx + math.cos(angle) * radius - 43
             holder.top = cy + math.sin(angle) * radius * ORBIT_ASPECT - 36
 
+    @staticmethod
+    def _mix_hex(color_a, color_b, amount):
+        """Blend two #RRGGBB colors. Used for fluid workflow highlights."""
+        amount = max(0.0, min(1.0, float(amount)))
+        a = color_a.lstrip("#")
+        b = color_b.lstrip("#")
+
+        ar, ag, ab = int(a[0:2], 16), int(a[2:4], 16), int(a[4:6], 16)
+        br, bg, bb = int(b[0:2], 16), int(b[2:4], 16), int(b[4:6], 16)
+
+        r = round(ar + (br - ar) * amount)
+        g = round(ag + (bg - ag) * amount)
+        bl = round(ab + (bb - ab) * amount)
+
+        return f"#{r:02X}{g:02X}{bl:02X}"
+
+    @staticmethod
+    def _smoothstep(value):
+        value = max(0.0, min(1.0, float(value)))
+        return value * value * (3.0 - 2.0 * value)
+
     def _workflow(self, spatial):
         accent = "#9B55F1" if spatial else "#29B8E8"
-        accent_soft = "#35245B" if spatial else "#153D55"
-        accent_border = "#B974FF" if spatial else "#63D8FF"
+        accent_bright = "#C98CFF" if spatial else "#73E5FF"
+        node_base = "#132036"
+        border_base = "#39506E"
 
         title = "Spatial Domain" if spatial else "Frequency Domain"
         subtitle = (
@@ -421,9 +447,12 @@ class HomeView:
         stage_shells = []
         stage_icons = []
         stage_labels = []
-        arrows = []
+        connectors = []
         row_controls = []
 
+        # -----------------------------------------------------
+        # PROCESSING NODES
+        # -----------------------------------------------------
         for i, (label, icon) in enumerate(zip(labels, icons)):
             icon_control = ft.Icon(
                 icon,
@@ -432,25 +461,25 @@ class HomeView:
             )
 
             shell = ft.Container(
-                width=54,
-                height=42,
+                width=56,
+                height=44,
                 alignment=ft.Alignment.CENTER,
-                border_radius=9,
-                bgcolor="#132036",
-                border=ft.Border.all(1, "#39506E"),
+                border_radius=11,
+                bgcolor=node_base,
+                border=ft.Border.all(1, border_base),
                 shadow=ft.BoxShadow(
-                    blur_radius=0,
-                    spread_radius=0,
-                    color="#00000000",
+                    blur_radius=5,
+                    spread_radius=-2,
+                    color=f"16{accent[1:]}",
                 ),
                 scale=1.0,
                 animate=ft.Animation(
-                    220,
-                    ft.AnimationCurve.EASE_OUT,
+                    70,
+                    ft.AnimationCurve.LINEAR,
                 ),
                 animate_scale=ft.Animation(
-                    220,
-                    ft.AnimationCurve.EASE_OUT_BACK,
+                    70,
+                    ft.AnimationCurve.LINEAR,
                 ),
                 content=icon_control,
             )
@@ -463,7 +492,7 @@ class HomeView:
             )
 
             stage = ft.Column(
-                spacing=4,
+                spacing=5,
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 controls=[
                     shell,
@@ -476,27 +505,82 @@ class HomeView:
             stage_icons.append(icon_control)
             stage_labels.append(label_control)
 
+            # -------------------------------------------------
+            # CONNECTOR WITH A REAL TRAVELLING "SIGNAL" SPARK
+            # -------------------------------------------------
             if i < len(labels) - 1:
-                arrow_icon = ft.Icon(
-                    ft.Icons.ARROW_FORWARD,
-                    size=19,
-                    color=AppColors.MUTED_2,
-                )
-
-                arrow_holder = ft.Container(
-                    width=24,
-                    height=28,
-                    alignment=ft.Alignment.CENTER,
-                    opacity=0.44,
-                    animate_opacity=ft.Animation(
-                        220,
-                        ft.AnimationCurve.EASE_OUT,
+                rail = ft.Container(
+                    left=1,
+                    top=10,
+                    width=31,
+                    height=2,
+                    border_radius=99,
+                    bgcolor="#263850",
+                    shadow=ft.BoxShadow(
+                        blur_radius=0,
+                        color="#00000000",
                     ),
-                    content=arrow_icon,
+                    animate=ft.Animation(
+                        70,
+                        ft.AnimationCurve.LINEAR,
+                    ),
                 )
 
-                row_controls.append(arrow_holder)
-                arrows.append(arrow_holder)
+                spark = ft.Container(
+                    left=1,
+                    top=7,
+                    width=8,
+                    height=8,
+                    border_radius=99,
+                    bgcolor=accent_bright,
+                    opacity=0.0,
+                    shadow=ft.BoxShadow(
+                        blur_radius=12,
+                        spread_radius=1,
+                        color=f"AA{accent[1:]}",
+                    ),
+                    animate_position=ft.Animation(
+                        65,
+                        ft.AnimationCurve.LINEAR,
+                    ),
+                    animate_opacity=ft.Animation(
+                        65,
+                        ft.AnimationCurve.LINEAR,
+                    ),
+                )
+
+                arrow_head = ft.Container(
+                    right=0,
+                    top=4,
+                    width=14,
+                    height=14,
+                    alignment=ft.Alignment.CENTER,
+                    content=ft.Icon(
+                        ft.Icons.CHEVRON_RIGHT,
+                        size=14,
+                        color=AppColors.MUTED_2,
+                    ),
+                )
+
+                connector = ft.Stack(
+                    width=38,
+                    height=22,
+                    controls=[
+                        rail,
+                        spark,
+                        arrow_head,
+                    ],
+                )
+
+                row_controls.append(connector)
+                connectors.append(
+                    {
+                        "stack": connector,
+                        "rail": rail,
+                        "spark": spark,
+                        "head": arrow_head.content,
+                    }
+                )
 
         flow_row = ft.Row(
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
@@ -504,8 +588,40 @@ class HomeView:
             controls=row_controls,
         )
 
+        # Small live-flow badge: subtle and useful, not flashy.
+        live_dot = ft.Container(
+            width=6,
+            height=6,
+            border_radius=99,
+            bgcolor=accent,
+            shadow=ft.BoxShadow(
+                blur_radius=8,
+                color=f"88{accent[1:]}",
+            ),
+        )
+
+        live_badge = ft.Container(
+            padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+            border_radius=99,
+            bgcolor="#101B2B",
+            border=ft.Border.all(1, "#263A55"),
+            content=ft.Row(
+                tight=True,
+                spacing=6,
+                controls=[
+                    live_dot,
+                    ft.Text(
+                        "LIVE SIGNAL FLOW",
+                        size=7,
+                        weight=ft.FontWeight.BOLD,
+                        color=AppColors.TEXT_SECONDARY,
+                    ),
+                ],
+            ),
+        )
+
         card = ft.Container(
-            height=188,
+            height=190,
             padding=ft.Padding.symmetric(
                 horizontal=20,
                 vertical=14,
@@ -520,24 +636,24 @@ class HomeView:
                 )
             ),
             shadow=ft.BoxShadow(
-                blur_radius=12,
-                spread_radius=-6,
+                blur_radius=15,
+                spread_radius=-7,
                 offset=ft.Offset(0, 7),
-                color=f"28{accent[1:]}",
+                color=f"30{accent[1:]}",
             ),
             scale=1.0,
             animate=ft.Animation(
-                220,
+                180,
                 ft.AnimationCurve.EASE_OUT,
             ),
             animate_scale=ft.Animation(
-                220,
-                ft.AnimationCurve.EASE_OUT_BACK,
+                180,
+                ft.AnimationCurve.EASE_OUT,
             ),
             on_hover=self._hover_workflow,
             data={
                 "accent": accent,
-                "rest_shadow": f"28{accent[1:]}",
+                "hovered": False,
             },
             content=ft.Column(
                 spacing=9,
@@ -546,14 +662,20 @@ class HomeView:
                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                         controls=[
                             ft.Column(
-                                spacing=1,
+                                spacing=2,
                                 controls=[
-                                    ft.Text(
-                                        title,
-                                        size=17,
-                                        weight=ft.FontWeight.BOLD,
-                                        color=AppColors.TEXT,
-                                        color=AppColors.TEXT,
+                                    ft.Row(
+                                        tight=True,
+                                        spacing=8,
+                                        controls=[
+                                            ft.Text(
+                                                title,
+                                                size=17,
+                                                weight=ft.FontWeight.BOLD,
+                                                color=AppColors.TEXT,
+                                            ),
+                                            live_badge,
+                                        ],
                                     ),
                                     ft.Text(
                                         subtitle,
@@ -594,19 +716,18 @@ class HomeView:
             {
                 "spatial": spatial,
                 "accent": accent,
-                "accent_soft": accent_soft,
-                "accent_border": accent_border,
+                "accent_bright": accent_bright,
+                "node_base": node_base,
+                "border_base": border_base,
                 "shells": stage_shells,
                 "icons": stage_icons,
                 "labels": stage_labels,
-                "arrows": arrows,
+                "connectors": connectors,
                 "row": flow_row,
-                "last_step": -1,
+                "card": card,
+                "live_dot": live_dot,
             }
         )
-
-        # Make the first frame meaningful before the async animation starts.
-        self._set_workflow_step(self._workflow_tracks[-1], 0)
 
         return card
 
@@ -614,94 +735,195 @@ class HomeView:
     def _hover_workflow(e):
         hovered = str(e.data).strip().lower() == "true"
         accent = (e.control.data or {}).get("accent", "#6280FF")
-        rest_shadow = (e.control.data or {}).get(
-            "rest_shadow",
-            f"28{accent[1:]}",
-        )
 
+        if e.control.data is None:
+            e.control.data = {}
+
+        e.control.data["hovered"] = hovered
         e.control.scale = 1.012 if hovered else 1.0
+
         e.control.shadow = ft.BoxShadow(
-            blur_radius=25 if hovered else 12,
-            spread_radius=-3 if hovered else -6,
+            blur_radius=27 if hovered else 15,
+            spread_radius=-3 if hovered else -7,
             offset=ft.Offset(0, 10 if hovered else 7),
-            color=f"55{accent[1:]}" if hovered else rest_shadow,
+            color=f"58{accent[1:]}" if hovered else f"30{accent[1:]}",
         )
 
         e.control.update()
 
-    def _set_workflow_step(self, track, active_index):
-        """Light one processing stage and its outgoing signal arrow."""
-        if track["last_step"] == active_index:
-            return
-
-        track["last_step"] = active_index
-        accent = track["accent"]
-        accent_soft = track["accent_soft"]
-        accent_border = track["accent_border"]
-
-        for i, shell in enumerate(track["shells"]):
-            active = i == active_index
-
-            shell.scale = 1.10 if active else 1.0
-            shell.bgcolor = accent_soft if active else "#132036"
-            shell.border = ft.Border.all(
-                1.4 if active else 1,
-                accent_border if active else "#39506E",
-            )
-            shell.shadow = ft.BoxShadow(
-                blur_radius=18 if active else 0,
-                spread_radius=0,
-                color=f"70{accent[1:]}" if active else "#00000000",
-            )
-
-            track["icons"][i].color = (
-                "#F7FAFF"
-                if active
-                else accent
-            )
-
-            track["labels"][i].color = (
-                "#F7FAFF"
-                if active
-                else AppColors.TEXT_SECONDARY
-            )
-            track["labels"][i].weight = (
-                ft.FontWeight.BOLD
-                if active
-                else ft.FontWeight.W_500
-            )
-
-        # The arrow immediately after the active stage becomes the moving
-        # "signal" indicator. On the final output stage no arrow is active.
-        for i, arrow in enumerate(track["arrows"]):
-            active_arrow = i == active_index and active_index < len(track["arrows"])
-            arrow.opacity = 1.0 if active_arrow else 0.38
-            arrow.content.color = accent if active_arrow else AppColors.MUTED_2
-
-        try:
-            track["row"].update()
-        except Exception:
-            pass
-
     def _advance_workflow_animation(self, dt):
+        """
+        Smooth, continuous DSP-flow animation.
+
+        Instead of switching a discrete "active step", a virtual signal moves
+        continuously from node to node. The two surrounding stages cross-fade,
+        the current connector glows, and a spark physically travels along it.
+        """
         if not self._workflow_tracks:
             return
 
         self._workflow_elapsed += dt
 
         for track in self._workflow_tracks:
-            count = len(track["shells"])
+            shells = track["shells"]
+            count = len(shells)
 
-            # Offset Frequency by half a step so both cards do not pulse
-            # in exact lock-step.
-            offset = 0.0 if track["spatial"] else self._workflow_step_seconds * 0.5
+            if count < 2:
+                continue
 
-            active = int(
-                (self._workflow_elapsed + offset)
-                / self._workflow_step_seconds
-            ) % count
+            travel_seconds = (count - 1) * self._workflow_segment_seconds
+            cycle_seconds = travel_seconds + self._workflow_end_hold_seconds
 
-            self._set_workflow_step(track, active)
+            # Frequency gets a gentle offset so both cards don't mirror
+            # one another exactly.
+            offset = 0.0 if track["spatial"] else 0.52
+            t = (self._workflow_elapsed + offset) % cycle_seconds
+
+            if t <= travel_seconds:
+                position = t / self._workflow_segment_seconds
+                position = min(position, count - 1)
+
+                segment = min(int(position), count - 2)
+                local = position - segment
+                eased = self._smoothstep(local)
+                holding_output = False
+            else:
+                # Soft output hold/fade before the signal restarts.
+                position = count - 1
+                segment = count - 2
+                local = 1.0
+                eased = 1.0
+                holding_output = True
+
+            # -------------------------------------------------
+            # NODE CROSS-FADE
+            # -------------------------------------------------
+            for i, shell in enumerate(shells):
+                distance = abs(i - position)
+
+                # Soft gaussian-like falloff without expensive math.
+                intensity = max(0.0, 1.0 - distance)
+                intensity = self._smoothstep(intensity)
+
+                if holding_output and i == count - 1:
+                    hold_progress = (t - travel_seconds) / self._workflow_end_hold_seconds
+                    # Breathing output glow during the brief hold.
+                    intensity = 0.72 + 0.20 * (
+                        0.5 + 0.5 * math.sin(hold_progress * math.pi * 2)
+                    )
+
+                shell.scale = 1.0 + 0.085 * intensity
+                shell.bgcolor = self._mix_hex(
+                    track["node_base"],
+                    track["accent"],
+                    0.20 * intensity,
+                )
+                shell.border = ft.Border.all(
+                    1.0 + 0.45 * intensity,
+                    self._mix_hex(
+                        track["border_base"],
+                        track["accent_bright"],
+                        0.92 * intensity,
+                    ),
+                )
+                shell.shadow = ft.BoxShadow(
+                    blur_radius=5 + 18 * intensity,
+                    spread_radius=-2 + 2 * intensity,
+                    color=f"{int(18 + 120 * intensity):02X}{track['accent'][1:]}",
+                )
+
+                track["icons"][i].color = self._mix_hex(
+                    track["accent"],
+                    "#FFFFFF",
+                    0.82 * intensity,
+                )
+
+                track["labels"][i].color = self._mix_hex(
+                    "#8A97AA",
+                    "#F7FAFF",
+                    0.90 * intensity,
+                )
+
+            # -------------------------------------------------
+            # CONNECTOR RAIL + TRAVELLING SPARK
+            # -------------------------------------------------
+            for i, connector in enumerate(track["connectors"]):
+                completed = i < segment
+                current = (i == segment) and not holding_output
+
+                if completed:
+                    connector["rail"].bgcolor = self._mix_hex(
+                        "#263850",
+                        track["accent"],
+                        0.58,
+                    )
+                    connector["rail"].shadow = ft.BoxShadow(
+                        blur_radius=5,
+                        color=f"55{track['accent'][1:]}",
+                    )
+                    connector["head"].color = track["accent"]
+                    connector["spark"].opacity = 0.0
+
+                elif current:
+                    connector["rail"].bgcolor = self._mix_hex(
+                        "#263850",
+                        track["accent"],
+                        0.38 + 0.48 * eased,
+                    )
+                    connector["rail"].shadow = ft.BoxShadow(
+                        blur_radius=7 + 6 * math.sin(math.pi * eased),
+                        color=f"88{track['accent'][1:]}",
+                    )
+
+                    # Spark moves from the beginning to the arrow head.
+                    connector["spark"].left = 1 + 24 * eased
+                    connector["spark"].opacity = (
+                        0.45 + 0.55 * math.sin(math.pi * eased)
+                    )
+                    connector["head"].color = self._mix_hex(
+                        "#617088",
+                        track["accent_bright"],
+                        eased,
+                    )
+
+                else:
+                    connector["rail"].bgcolor = "#263850"
+                    connector["rail"].shadow = ft.BoxShadow(
+                        blur_radius=0,
+                        color="#00000000",
+                    )
+                    connector["head"].color = AppColors.MUTED_2
+                    connector["spark"].opacity = 0.0
+
+            # -------------------------------------------------
+            # SUBTLE CARD "BREATHING" GLOW
+            # -------------------------------------------------
+            pulse = 0.5 + 0.5 * math.sin(
+                self._workflow_elapsed * 1.35
+                + (0.0 if track["spatial"] else math.pi)
+            )
+
+            hovered = bool((track["card"].data or {}).get("hovered", False))
+
+            if not hovered:
+                track["card"].shadow = ft.BoxShadow(
+                    blur_radius=14 + 4 * pulse,
+                    spread_radius=-7,
+                    offset=ft.Offset(0, 7),
+                    color=f"{int(32 + 18 * pulse):02X}{track['accent'][1:]}",
+                )
+
+            # Tiny status dot breathes independently.
+            track["live_dot"].scale = 0.88 + 0.18 * pulse
+
+            try:
+                track["row"].update()
+                track["live_dot"].update()
+
+                if not hovered:
+                    track["card"].update()
+            except Exception:
+                pass
 
     def _recent_projects(self):
         self.project_count_text = ft.Text(
