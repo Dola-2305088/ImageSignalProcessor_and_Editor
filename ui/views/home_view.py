@@ -600,25 +600,6 @@ class HomeView:
             ),
         )
 
-        live_badge = ft.Container(
-            padding=ft.Padding.symmetric(horizontal=8, vertical=4),
-            border_radius=99,
-            bgcolor="#101B2B",
-            border=ft.Border.all(1, "#263A55"),
-            content=ft.Row(
-                tight=True,
-                spacing=6,
-                controls=[
-                    live_dot,
-                    ft.Text(
-                        "LIVE SIGNAL FLOW",
-                        size=7,
-                        weight=ft.FontWeight.BOLD,
-                        color=AppColors.TEXT_SECONDARY,
-                    ),
-                ],
-            ),
-        )
 
         card = ft.Container(
             height=190,
@@ -674,7 +655,6 @@ class HomeView:
                                                 weight=ft.FontWeight.BOLD,
                                                 color=AppColors.TEXT,
                                             ),
-                                            live_badge,
                                         ],
                                     ),
                                     ft.Text(
