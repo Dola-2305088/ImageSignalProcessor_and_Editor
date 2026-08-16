@@ -553,6 +553,7 @@ class HomeView:
                                         size=17,
                                         weight=ft.FontWeight.BOLD,
                                         color=AppColors.TEXT,
+                                        color=AppColors.TEXT,
                                     ),
                                     ft.Text(
                                         subtitle,

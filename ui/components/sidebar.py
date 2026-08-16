@@ -36,9 +36,11 @@ class Sidebar:
 
         self.control = self._build()
 
-    # =========================================================
-    # BUILD
-    # =========================================================
+    @staticmethod
+    def _is_hovered(value):
+        if isinstance(value, bool):
+            return value
+        return str(value).strip().lower() in {"true", "1", "yes"}
 
     def _build(self):
         nav = ft.Column(
@@ -254,7 +256,7 @@ class Sidebar:
         self.profile_text = ft.Container(
             width=125,
             content=ft.Column(
-                spacing=1,
+                spacing=0,
                 controls=[
                     self.profile_name_text,
                     self.profile_plan_text,
@@ -365,11 +367,10 @@ class Sidebar:
 
     def _select(self, index):
         if not 0 <= index < len(NAV_ITEMS):
+        if not 0 <= index < len(NAV_ITEMS):
             return
-
         self.selected_index = index
         self._refresh_selection()
-
         if self.on_navigation_change:
             self.on_navigation_change(index)
 
@@ -434,10 +435,6 @@ class Sidebar:
             self.control.update()
         except Exception:
             pass
-
-    # =========================================================
-    # PUBLIC API
-    # =========================================================
 
     def get_selected_index(self):
         return self.selected_index

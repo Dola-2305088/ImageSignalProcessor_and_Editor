@@ -1,3 +1,5 @@
+
+"""
 import asyncio
 import os
 from io import BytesIO
@@ -1733,3 +1735,4 @@ class ImageProcessorApp:
         )
         plt.close(fig)
         return buffer.getvalue()
+    """
