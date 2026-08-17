@@ -1,20 +1,12 @@
-import sys
+import flet as ft
 
-from PyQt6.QtWidgets import QApplication
-
-from ui.main_window import MainWindow
+from ui.main_window import ImageProcessorApp
 
 
-def main():
-    app = QApplication(sys.argv)
-
-    window = MainWindow()
-    window.show()
-
-    sys.exit(app.exec())
+def main(page: ft.Page):
+    ImageProcessorApp(page)
 
 
 if __name__ == "__main__":
-    main()
-
+    ft.run(main)
     #python main.py
