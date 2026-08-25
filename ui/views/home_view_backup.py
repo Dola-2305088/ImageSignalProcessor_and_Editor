@@ -9,7 +9,6 @@ from ui.theme import AppAnimations, AppColors
 from ui.app_preferences import WORKSPACE_OPTIONS
 
 GALAXY_IMAGE = "images/Nasa2.jpg"
-AETHERIS_ORBIT_LOGO = "images/logo.png"
 
 # Permanent demo projects. These three cards always stay at the top of
 # Recent Projects. Put the matching image files inside assets/images/.
@@ -42,13 +41,13 @@ ORBIT_FRAME_INTERVAL = 0.02          # ~50fps target
 ORBIT_ANGULAR_SPEED = 0.28           # radians/sec, independent of frame rate
 ORBIT_GLOW_SPEED = 1.6               # breathing speed of the center glow
 ORBIT_TRANSITION_MS = int(ORBIT_FRAME_INTERVAL * 1000 * 2.4)  # slight overlap smooths jitter/frame drops
-ORBIT_ASPECT = 0.66                  # gives the AETHERIS mark enough vertical breathing room
+ORBIT_ASPECT = 0.58                  # flattens the circular path into the wide ellipse from the reference
 
 # Compact center hub. Keeping the hub comfortably smaller than the outer
 # feature path makes the six feature bubbles visibly orbit around it.
-CENTER_HUB_SIZE = 110
-CENTER_LOGO_SIZE = 120
-CENTER_GLOW_SIZE = 100
+CENTER_HUB_SIZE = 96
+CENTER_LOGO_SIZE = 86
+CENTER_GLOW_SIZE = 120
 
 # Same six accent colors used by the orbit nodes below, so the center mark
 # reads as "built from" the six operations orbiting it.
@@ -471,30 +470,29 @@ class HomeView:
 
         self.orbit_stack = ft.Stack(width=560, height=278, controls=[ring_paths])
 
-        # No background glow behind the center logo.
-        self._glow_container = None
+        # Soft ambient glow sitting behind the center image, breathes gently.
+        self._glow_container = ft.Container(
+            left=cx - CENTER_GLOW_SIZE / 2,
+            top=cy - CENTER_GLOW_SIZE / 2,
+            width=CENTER_GLOW_SIZE,
+            height=CENTER_GLOW_SIZE,
+            border_radius=999,
+            animate=ft.Animation(int(ORBIT_FRAME_INTERVAL * 1000 * 3), ft.AnimationCurve.EASE_IN_OUT),
+            shadow=ft.BoxShadow(blur_radius=28, spread_radius=1, color="#426676FF"),
+        )
+        self.orbit_stack.controls.append(self._glow_container)
 
-        # Clean circular AETHERIS centerpiece.
-        # No sparkle ring — just the logo fitted neatly inside a circle.
         self._center_container = ft.Container(
             left=cx - CENTER_HUB_SIZE / 2,
             top=cy - CENTER_HUB_SIZE / 2,
             width=CENTER_HUB_SIZE,
             height=CENTER_HUB_SIZE,
-            padding=8,
-            border_radius=999,
-            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+            border_radius=999, clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+            bgcolor="#0F1626",
+            border=ft.Border.all(1.25, "#DCE4F5"),
+            shadow=ft.BoxShadow(blur_radius=14, spread_radius=-2, color="#66000000"),
             alignment=ft.Alignment.CENTER,
-            bgcolor="#0B1020",
-            border=ft.Border.all(1.0, "#6F7FA8"),
-            shadow=None,
-            content=ft.Image(
-                src=AETHERIS_ORBIT_LOGO,
-                width=CENTER_LOGO_SIZE,
-                height=CENTER_LOGO_SIZE,
-                fit=ft.BoxFit.CONTAIN,
-                gapless_playback=True,
-            ),
+            content=_build_orbit_spark_logo(CENTER_LOGO_SIZE),
         )
         self.orbit_stack.controls.append(self._center_container)
 

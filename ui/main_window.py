@@ -45,6 +45,7 @@ from ui.components.status_bar import StatusBar
 from ui.components.loading_overlay import LoadingOverlay
 
 from ui.views.home_view import HomeView
+from ui.views.splash_view import SplashView
 from ui.views.frequency_view import FrequencyView
 from ui.views.compression_view import CompressionView
 from ui.views.texture_view import TextureView
@@ -109,6 +110,7 @@ class ImageProcessorApp:
     def _build_ui(self):
         self.status_bar = StatusBar()
         self.loading_overlay = LoadingOverlay()
+        self.splash_view = SplashView()
 
         self.sidebar = Sidebar(
             on_navigation_change=self._on_sidebar_navigation,
@@ -254,6 +256,7 @@ class ImageProcessorApp:
             controls=[
                 app_shell,
                 self.loading_overlay.control,
+                self.splash_view.control,
             ],
         )
 
@@ -263,8 +266,18 @@ class ImageProcessorApp:
         self.top_bar.set_home_mode(True)
         self.status_bar.control.visible = False
 
-        # Start Home orbital animation once mounted.
-        self.page.run_task(self.home_view.start_orbit_animation)
+        # Run the branded launch screen first. Home's continuous
+        # animations begin only after the splash has faded away.
+        self.page.run_task(self._run_launch_sequence)
+
+    async def _run_launch_sequence(self):
+        """Play the splash screen, then start Home's background animations."""
+        try:
+            await self.splash_view.play()
+        finally:
+            # Even if the splash exits early for any reason, the main Home
+            # animation should still be allowed to start.
+            self.page.run_task(self.home_view.start_orbit_animation)
 
     # =========================================================
     # NAVIGATION
@@ -466,16 +479,12 @@ class ImageProcessorApp:
                         spacing=12,
                         controls=[
                             ft.Text(
-                                "Image Signal Processor & Editor",
+                                "AETHERIS",
                                 size=17,
                                 weight=ft.FontWeight.BOLD,
                                 color=AppColors.TEXT,
                             ),
-                            ft.Text(
-                                "CSE 220 Signal Lab Project",
-                                size=11,
-                                color=AppColors.CYAN,
-                            ),
+                            
                             ft.Divider(color=AppColors.BORDER_SOFT),
                             ft.Text(
                                 "A desktop image-processing workspace that "

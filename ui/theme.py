@@ -321,7 +321,7 @@ def create_dark_theme():
 
 def configure_page(page: ft.Page):
 
-    page.title = "Image Signal Processor & Editor"
+    page.title = "AETHERIS"
 
     page.theme_mode = ft.ThemeMode.DARK
 
