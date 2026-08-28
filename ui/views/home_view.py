@@ -7,6 +7,7 @@ import flet.canvas as fc
 
 from ui.theme import AppAnimations, AppColors
 from ui.app_preferences import WORKSPACE_OPTIONS
+from ui.components.sidebar import route_index
 
 GALAXY_IMAGE = "images/Nasa2.jpg"
 AETHERIS_ORBIT_LOGO = "images/logo.png"
@@ -813,7 +814,13 @@ class HomeView:
                             ft.Button(
                                 content="Start",
                                 icon=ft.Icons.PLAY_ARROW_OUTLINED,
-                                on_click=lambda e: self._navigate(1),
+                                on_click=lambda e: self._navigate(
+                                    route_index(
+                                        "blur_sharpen"
+                                        if spatial
+                                        else "frequency"
+                                    )
+                                ),
                                 bgcolor="#27387C" if spatial else "#15528A",
                                 color=AppColors.TEXT,
                                 style=ft.ButtonStyle(
@@ -1165,7 +1172,7 @@ class HomeView:
             shadow=ft.BoxShadow(blur_radius=0, spread_radius=0, offset=ft.Offset(0, 8), color="#00000000"),
             on_hover=self._hover_project,
             ink=True,
-            on_click=lambda e: self._navigate(1),
+            on_click=lambda e: self._navigate(route_index("blur_sharpen")),
             content=ft.Column(spacing=0, controls=[
                 ft.Image(src=image, height=165, width=600, fit=ft.BoxFit.COVER,
                          gapless_playback=True,

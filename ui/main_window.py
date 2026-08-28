@@ -1,4 +1,5 @@
 import asyncio
+import time
 import os
 from io import BytesIO
 
@@ -10,6 +11,35 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 from PIL import Image, ImageOps
+
+from algorithms.spatial.blur_sharpen import (
+    blur_image,
+    sharpen_image,
+    apply_custom_kernel,
+)
+from algorithms.spatial.edge_detection import detect_edges
+from algorithms.spatial.noise_cleaner import (
+    add_gaussian_noise,
+    add_salt_pepper_noise,
+    clean_noise,
+)
+from algorithms.spatial.resize import resize_image
+from algorithms.spatial.gaussian_separable import (
+    gaussian_blur_2d,
+    gaussian_blur_separable,
+    compare_gaussian_results,
+    compare_execution_time,
+    theoretical_operations,
+)
+from algorithms.spatial.motion_blur import (
+    create_motion_kernel,
+    motion_blur_with_kernel,
+)
+from algorithms.spatial.wiener import (
+    wiener_deconvolution,
+    inverse_deconvolution,
+    add_gaussian_noise as add_blur_noise,
+)
 
 from algorithms.frequency.dft import (
     manual_dft2,
@@ -39,11 +69,18 @@ from ui.app_preferences import (
     PreferencesStore,
 )
 from ui.components.top_bar import TopBar
-from ui.components.sidebar import Sidebar
+from ui.components.sidebar import Sidebar, NAV_ITEMS, route_index
 from ui.components.image_card import ImageCard
 from ui.components.status_bar import StatusBar
 from ui.components.loading_overlay import LoadingOverlay
 
+from ui.views.blur_sharpen_view import BlurSharpenView
+from ui.views.edge_view import EdgeView
+from ui.views.noise_view import NoiseView
+from ui.views.resize_view import ResizeView
+from ui.views.gaussian_view import GaussianView
+from ui.views.motion_view import MotionView
+from ui.views.wiener_view import WienerView
 from ui.views.home_view import HomeView
 from ui.views.splash_view import SplashView
 from ui.views.frequency_view import FrequencyView
@@ -79,6 +116,15 @@ class ImageProcessorApp:
         self.current_dft = None
         self.current_dft_source = None
         self.current_compressed_dft = None
+
+        # -----------------------------------------------------
+        # Spatial state
+        # -----------------------------------------------------
+        self.noisy_image = None
+        self.noisy_label = None
+        self.motion_kernel = None
+        self.motion_blurred = None
+        self.motion_params = None
 
         # -----------------------------------------------------
         # Texture state
@@ -208,13 +254,35 @@ class ImageProcessorApp:
             on_ycbcr=self.show_ycbcr_channels,
         )
 
+        # -----------------------------
+        # Spatial pages
+        # -----------------------------
+        # The algorithms are implemented and verified on the Dola branch;
+        # only the controls are missing. Each placeholder is swapped for
+        # a real view without touching routing.
+
+        self.spatial_views = self._build_spatial_views()
+
+        # -----------------------------
+        # Route table
+        # -----------------------------
+        # Keyed by sidebar route key, then flattened in NAV_ITEMS order.
+        # Nothing here depends on a hardcoded index.
+
+        self.views_by_key = {
+            "home": self.home_view.control,
+            "frequency": self.frequency_view.control,
+            "compression": self.compression_view.control,
+            "texture": self.texture_view.control,
+            "hybrid": self.hybrid_view.control,
+            "color": self.color_view.control,
+        }
+
+        for key, view in self.spatial_views.items():
+            self.views_by_key[key] = view.control
+
         self.feature_views = [
-            self.home_view.control,
-            self.frequency_view.control,
-            self.compression_view.control,
-            self.texture_view.control,
-            self.hybrid_view.control,
-            self.color_view.control,
+            self.views_by_key[item["key"]] for item in NAV_ITEMS
         ]
 
         # Home starts without the processing image cards.
@@ -270,6 +338,68 @@ class ImageProcessorApp:
         # animations begin only after the splash has faded away.
         self.page.run_task(self._run_launch_sequence)
 
+    # =========================================================
+    # SPATIAL VIEWS
+    # =========================================================
+
+    def _build_spatial_views(self):
+        """Construct the seven spatial pages, keyed by sidebar route."""
+
+        self.blur_sharpen_view = BlurSharpenView(
+            on_apply=self.apply_blur_sharpen,
+        )
+
+        self.edge_view = EdgeView(
+            on_detect=self.detect_image_edges,
+            on_compare=self.compare_edge_modes,
+        )
+
+        self.noise_view = NoiseView(
+            on_add_noise=self.add_image_noise,
+            on_clean=self.clean_image_noise,
+            on_compare=self.compare_noise_filters,
+        )
+
+        self.resize_view = ResizeView(
+            on_resize=self.resize_current_image,
+            on_compare=self.compare_resize_methods,
+        )
+
+        self.gaussian_view = GaussianView(
+            on_separable=self.apply_separable_blur,
+            on_full_2d=self.apply_full_2d_blur,
+            on_benchmark=self.benchmark_separability,
+        )
+
+        self.motion_view = MotionView(
+            on_apply=self.apply_motion_blur,
+            on_show_kernel=self.show_motion_kernel,
+        )
+
+        self.wiener_view = WienerView(
+            on_restore=self.restore_with_wiener,
+            on_compare=self.compare_restoration_methods,
+            on_sweep=self.sweep_wiener_k,
+        )
+
+        return {
+            "blur_sharpen": self.blur_sharpen_view,
+            "edges": self.edge_view,
+            "noise": self.noise_view,
+            "resize": self.resize_view,
+            "gaussian": self.gaussian_view,
+            "motion": self.motion_view,
+            "wiener": self.wiener_view,
+        }
+
+    # ROUTE HELPER
+    # =========================================================
+
+    @staticmethod
+    def route(key):
+        """Resolve a sidebar route key to its navigation index."""
+        return route_index(key)
+
     async def _run_launch_sequence(self):
         """Play the splash screen, then start Home's background animations."""
         try:
@@ -291,10 +421,12 @@ class ImageProcessorApp:
         self._show_feature(index)
 
     def change_workspace(self, workspace):
-        """Persist a workspace choice and open its implemented view."""
-        route = WORKSPACE_ROUTES.get(workspace)
-        if route is None:
+        """Persist the startup-page choice and open it once."""
+        route_key = WORKSPACE_ROUTES.get(workspace)
+        if route_key is None:
             return
+
+        route = self.route(route_key)
 
         self.profile.workspace = workspace
 
@@ -395,8 +527,10 @@ class ImageProcessorApp:
 
             close_dialog()
 
-            # Make the chosen workspace active immediately.
-            route = WORKSPACE_ROUTES.get(self.profile.workspace, 0)
+            # Make the chosen startup page active immediately.
+            route = self.route(
+                WORKSPACE_ROUTES.get(self.profile.workspace, "home")
+            )
             if route != self.current_feature_index:
                 self._navigate_to(route)
 
@@ -527,22 +661,9 @@ class ImageProcessorApp:
 
         self.current_feature_index = index
 
-        # Keep workspace label synchronized with the active page.
-        route_workspaces = {
-            route: name
-            for name, route in WORKSPACE_ROUTES.items()
-        }
-        active_workspace = route_workspaces.get(index, "Default")
-
-        if self.profile.workspace != active_workspace:
-            self.profile.workspace = active_workspace
-            try:
-                self.preferences_store.save(self.profile)
-            except OSError:
-                pass
-
-            self.home_view.set_profile(self.profile, refresh=False)
-            self.sidebar.set_profile(self.profile, refresh=False)
+        # The workspace preference is a startup choice, not a mirror of
+        # the current page. Navigating no longer rewrites it, so the
+        # sidebar is the single source of truth for where you are.
 
         feature_name = self.sidebar.get_feature_name(index)
         is_home = index == 0
@@ -845,10 +966,21 @@ class ImageProcessorApp:
             self.current_dft_source = None
             self.current_compressed_dft = None
 
-            # Update Home while mounted, then enter Frequency workspace.
+            # Update Home while mounted, then open the saved startup
+            # page. Falls back to the first spatial feature so opening an
+            # image never leaves the user on a page with nothing to do.
             if self.current_feature_index == 0:
                 self.home_view.set_session_name(name, refresh=True)
-                self._navigate_to(1)
+
+                startup_key = WORKSPACE_ROUTES.get(
+                    self.profile.workspace,
+                    "home",
+                )
+
+                if startup_key == "home":
+                    startup_key = "blur_sharpen"
+
+                self._navigate_to(self.route(startup_key))
             else:
                 self.home_view.set_session_name(name, refresh=False)
 
@@ -962,6 +1094,981 @@ class ImageProcessorApp:
 
         finally:
             self._set_busy(False)
+
+    # =========================================================
+    # SPATIAL HELPERS
+    # =========================================================
+
+    def _image_array(self):
+        """Current original image as a uint8 RGB array."""
+        return np.array(self.original_image.convert("RGB"), dtype=np.uint8)
+
+    @staticmethod
+    def _to_pil(array):
+        """Wrap an algorithm result as a displayable RGB image.
+
+        Edge detection returns a single-channel gradient, so 2D arrays
+        are widened to three channels rather than failing.
+        """
+        array = np.asarray(array)
+
+        if array.ndim == 2:
+            array = np.stack([array] * 3, axis=-1)
+
+        return Image.fromarray(
+            np.clip(array, 0, 255).astype(np.uint8)
+        ).convert("RGB")
+
+    async def _run(self, function, *args, **kwargs):
+        """Run a blocking algorithm off the UI thread, returning elapsed."""
+        start = time.perf_counter()
+        result = await asyncio.to_thread(function, *args, **kwargs)
+        return result, time.perf_counter() - start
+
+    @staticmethod
+    def _seconds(value):
+        if value < 1:
+            return f"{value * 1000:.0f} ms"
+        return f"{value:.2f} s"
+
+    @staticmethod
+    def _psnr_text(value):
+        if value == float("inf"):
+            return "identical"
+        return f"{value:.2f} dB"
+
+    def _panel_figure(self, panels, title):
+        """Comparison grid: panels is a list of (array, caption)."""
+        columns = len(panels)
+        fig, axes = plt.subplots(
+            1,
+            columns,
+            figsize=(4.0 * columns, 4.4),
+        )
+        fig.patch.set_facecolor("#0A0F19")
+
+        if columns == 1:
+            axes = [axes]
+
+        for axis, (array, caption) in zip(axes, panels):
+            array = np.asarray(array)
+            if array.ndim == 2:
+                axis.imshow(array, cmap="gray", vmin=0, vmax=255)
+            else:
+                axis.imshow(np.clip(array, 0, 255).astype(np.uint8))
+            axis.set_title(caption, color="#F8FAFC", fontsize=10)
+            axis.axis("off")
+
+        fig.suptitle(title, color="#22D3EE", fontsize=12, y=1.04)
+        fig.tight_layout()
+        return self._figure_to_png_bytes(fig)
+
+    # =========================================================
+    # FEATURE 1 — BLUR & SHARPEN
+    # =========================================================
+
+    async def apply_blur_sharpen(self, e):
+        if not self._require_image():
+            return
+
+        view = self.blur_sharpen_view
+        mode = view.get_mode()
+        source = self._image_array()
+
+        if mode == "custom":
+            try:
+                kernel = np.array(view.get_custom_kernel(), dtype=np.float64)
+            except ValueError as error:
+                view.show_kernel_error(str(error))
+                self._toast(str(error), error=True)
+                return
+            view.show_kernel_error(None)
+
+        self._set_busy(True, "Applying convolution kernel…")
+
+        try:
+            if mode == "blur":
+                size = view.get_kernel_size()
+                result, elapsed = await self._run(blur_image, source, size)
+                label = f"Box blur {size}×{size}"
+                kernel_text = f"{size}×{size} box"
+
+            elif mode == "sharpen":
+                result, elapsed = await self._run(sharpen_image, source)
+                label = "Sharpen"
+                kernel_text = "3×3 sharpen"
+
+            else:
+                result, elapsed = await self._run(
+                    apply_custom_kernel,
+                    source,
+                    kernel,
+                )
+                label = "Custom kernel"
+                kernel_text = (
+                    "3×3 custom"
+                    + (" (normalised)" if view.kernel_grid.is_normalised() else "")
+                )
+
+            psnr = calculate_psnr(source, np.asarray(result))
+
+            self._set_processed_pil(
+                self._to_pil(result),
+                label,
+                f"{label} applied in {self._seconds(elapsed)}.",
+            )
+
+            view.metrics.set_values(
+                {
+                    "operation": label,
+                    "kernel": kernel_text,
+                    "psnr": self._psnr_text(psnr),
+                    "elapsed": self._seconds(elapsed),
+                },
+                note="Lower PSNR simply means the result differs more "
+                     "from the original — expected for a strong blur.",
+            )
+
+        except Exception as error:
+            self._toast(f"Convolution error: {error}", error=True)
+
+        finally:
+            self._set_busy(False)
+
+    # =========================================================
+    # FEATURE 2 — EDGE DETECTOR
+    # =========================================================
+
+    async def detect_image_edges(self, e):
+        if not self._require_image():
+            return
+
+        mode = self.edge_view.get_mode()
+        source = self._image_array()
+
+        self._set_busy(True, f"Running Sobel {mode} edge detection…")
+
+        try:
+            edges, elapsed = await self._run(detect_edges, source, mode)
+            edges = np.asarray(edges)
+
+            self._set_processed_pil(
+                self._to_pil(edges),
+                f"Edges • {mode.title()}",
+                f"Sobel {mode} detection in {self._seconds(elapsed)}.",
+            )
+
+            self.edge_view.metrics.set_values(
+                {
+                    "mode": mode.title(),
+                    "max": f"{edges.max():.0f}",
+                    "mean": f"{edges.mean():.1f}",
+                    "elapsed": self._seconds(elapsed),
+                },
+                note="Gradient magnitude is single-channel, so the result "
+                     "is displayed in grayscale.",
+            )
+
+        except Exception as error:
+            self._toast(f"Edge detection error: {error}", error=True)
+
+        finally:
+            self._set_busy(False)
+
+    async def compare_edge_modes(self, e):
+        if not self._require_image():
+            return
+
+        source = self._image_array()
+        self._set_busy(True, "Running all three Sobel modes…")
+
+        try:
+            panels = [(source, "Original")]
+
+            for mode in ("horizontal", "vertical", "combined"):
+                edges, _ = await self._run(detect_edges, source, mode)
+                panels.append((np.asarray(edges), mode.title()))
+
+            image_bytes = await asyncio.to_thread(
+                self._panel_figure,
+                panels,
+                "Sobel edge detection modes",
+            )
+
+            self._set_processed_bytes(
+                image_bytes,
+                "Edge Mode Comparison",
+                "Horizontal, vertical and combined edges.",
+            )
+
+        except Exception as error:
+            self._toast(f"Comparison error: {error}", error=True)
+
+        finally:
+            self._set_busy(False)
+
+    # =========================================================
+    # FEATURE 3 — NOISE CLEANER
+    # =========================================================
+
+    async def add_image_noise(self, e):
+        if not self._require_image():
+            return
+
+        view = self.noise_view
+        noise_type = view.get_noise_type()
+        source = self._image_array()
+
+        self._set_busy(True, "Adding noise…")
+
+        try:
+            if noise_type == "gaussian":
+                sigma = view.get_sigma()
+                noisy, elapsed = await self._run(
+                    add_gaussian_noise,
+                    source,
+                    0.0,
+                    sigma,
+                )
+                label = f"Gaussian noise σ={sigma:.0f}"
+            else:
+                density = view.get_density()
+                noisy, elapsed = await self._run(
+                    add_salt_pepper_noise,
+                    source,
+                    density,
+                )
+                label = f"Salt & pepper {density * 100:.0f}%"
+
+            self.noisy_image = np.asarray(noisy)
+            self.noisy_label = label
+
+            psnr = calculate_psnr(source, self.noisy_image)
+
+            self._set_processed_pil(
+                self._to_pil(self.noisy_image),
+                label,
+                f"{label} added. Now clean it.",
+            )
+
+            view.metrics.set_values(
+                {
+                    "noise": label,
+                    "noisy_psnr": self._psnr_text(psnr),
+                    "cleaned_psnr": "—",
+                    "gain": "—",
+                },
+                note="Noisy image stored. Pick a filter and clean it.",
+            )
+
+        except Exception as error:
+            self._toast(f"Noise error: {error}", error=True)
+
+        finally:
+            self._set_busy(False)
+
+    async def clean_image_noise(self, e):
+        if not self._require_image():
+            return
+
+        if self.noisy_image is None:
+            self._toast("Add noise first, then clean it.", error=True)
+            return
+
+        view = self.noise_view
+        method = view.get_filter()
+        size = view.get_filter_size()
+        source = self._image_array()
+
+        self._set_busy(True, f"Applying {method} filter…")
+
+        try:
+            cleaned, elapsed = await self._run(
+                clean_noise,
+                self.noisy_image,
+                method,
+                size,
+            )
+            cleaned = np.asarray(cleaned)
+
+            noisy_psnr = calculate_psnr(source, self.noisy_image)
+            cleaned_psnr = calculate_psnr(source, cleaned)
+            gain = cleaned_psnr - noisy_psnr
+
+            self._set_processed_pil(
+                self._to_pil(cleaned),
+                f"{method.title()} filter {size}×{size}",
+                f"Cleaned in {self._seconds(elapsed)}.",
+            )
+
+            view.metrics.set_values(
+                {
+                    "noise": self.noisy_label or "—",
+                    "noisy_psnr": self._psnr_text(noisy_psnr),
+                    "cleaned_psnr": self._psnr_text(cleaned_psnr),
+                    "gain": f"{gain:+.2f} dB",
+                },
+                note="A positive gain means the filter recovered more than "
+                     "it destroyed.",
+            )
+
+        except Exception as error:
+            self._toast(f"Filter error: {error}", error=True)
+
+        finally:
+            self._set_busy(False)
+
+    async def compare_noise_filters(self, e):
+        if not self._require_image():
+            return
+
+        if self.noisy_image is None:
+            self._toast("Add noise first, then compare.", error=True)
+            return
+
+        source = self._image_array()
+        size = self.noise_view.get_filter_size()
+
+        self._set_busy(True, "Running mean, Gaussian and median filters…")
+
+        try:
+            noisy_psnr = calculate_psnr(source, self.noisy_image)
+            panels = [
+                (source, "Original"),
+                (
+                    self.noisy_image,
+                    f"Noisy\n{self._psnr_text(noisy_psnr)}",
+                ),
+            ]
+
+            best_name, best_psnr = None, -1.0
+
+            for method in ("mean", "gaussian", "median"):
+                cleaned, _ = await self._run(
+                    clean_noise,
+                    self.noisy_image,
+                    method,
+                    size,
+                )
+                cleaned = np.asarray(cleaned)
+                psnr = calculate_psnr(source, cleaned)
+
+                if psnr > best_psnr:
+                    best_name, best_psnr = method, psnr
+
+                panels.append(
+                    (cleaned, f"{method.title()}\n{self._psnr_text(psnr)}")
+                )
+
+            image_bytes = await asyncio.to_thread(
+                self._panel_figure,
+                panels,
+                f"Noise filter comparison • {size}×{size} kernel",
+            )
+
+            self._set_processed_bytes(
+                image_bytes,
+                "Filter Comparison",
+                f"Best result: {best_name} at {self._psnr_text(best_psnr)}.",
+            )
+
+            self.noise_view.metrics.set_values(
+                {
+                    "noise": self.noisy_label or "—",
+                    "noisy_psnr": self._psnr_text(noisy_psnr),
+                    "cleaned_psnr": self._psnr_text(best_psnr),
+                    "gain": f"{best_psnr - noisy_psnr:+.2f} dB",
+                },
+                note=f"Best filter for this noise: {best_name}.",
+            )
+
+        except Exception as error:
+            self._toast(f"Comparison error: {error}", error=True)
+
+        finally:
+            self._set_busy(False)
+
+    # =========================================================
+    # FEATURE 6 — IMAGE RESIZER
+    # =========================================================
+
+    def _target_size(self, scale):
+        height, width = self._image_array().shape[:2]
+        return (
+            max(1, int(round(width * scale))),
+            max(1, int(round(height * scale))),
+        )
+
+    async def resize_current_image(self, e):
+        if not self._require_image():
+            return
+
+        view = self.resize_view
+        method = view.get_method()
+        scale = view.get_scale()
+        antialias = view.get_antialias() and scale < 1.0
+
+        source = self._image_array()
+        new_width, new_height = self._target_size(scale)
+
+        self._set_busy(True, f"Resizing to {new_width}×{new_height}…")
+
+        try:
+            result, elapsed = await self._run(
+                resize_image,
+                source,
+                new_width,
+                new_height,
+                method,
+                antialias,
+            )
+
+            self._set_processed_pil(
+                self._to_pil(result),
+                f"{method.title()} • {new_width}×{new_height}",
+                f"Resized in {self._seconds(elapsed)}.",
+            )
+
+            view.metrics.set_values(
+                {
+                    "method": method.title(),
+                    "size": f"{new_width} × {new_height}",
+                    "antialias": "On" if antialias else "Off",
+                    "elapsed": self._seconds(elapsed),
+                },
+                note="Anti-aliasing only applies when downsampling."
+                     if scale >= 1.0
+                     else "Pre-filtering removes detail the smaller grid "
+                          "cannot represent.",
+            )
+
+        except Exception as error:
+            self._toast(f"Resize error: {error}", error=True)
+
+        finally:
+            self._set_busy(False)
+
+    async def compare_resize_methods(self, e):
+        if not self._require_image():
+            return
+
+        scale = self.resize_view.get_scale()
+        source = self._image_array()
+        new_width, new_height = self._target_size(scale)
+
+        self._set_busy(True, "Comparing resampling methods…")
+
+        try:
+            variants = [
+                ("nearest", False, "Nearest"),
+                ("bilinear", False, "Bilinear"),
+                ("bilinear", True, "Bilinear + anti-alias"),
+            ]
+
+            panels = [(source, f"Original\n{source.shape[1]}×{source.shape[0]}")]
+
+            for method, antialias, caption in variants:
+                result, _ = await self._run(
+                    resize_image,
+                    source,
+                    new_width,
+                    new_height,
+                    method,
+                    antialias,
+                )
+                result = np.asarray(result)
+                panels.append(
+                    (result, f"{caption}\nstd {result.std():.1f}")
+                )
+
+            image_bytes = await asyncio.to_thread(
+                self._panel_figure,
+                panels,
+                f"Resampling comparison • {new_width}×{new_height}",
+            )
+
+            self._set_processed_bytes(
+                image_bytes,
+                "Resampling Comparison",
+                "Low std-dev after anti-aliasing means aliasing was "
+                "suppressed, not that the image broke.",
+            )
+
+        except Exception as error:
+            self._toast(f"Comparison error: {error}", error=True)
+
+        finally:
+            self._set_busy(False)
+
+    # =========================================================
+    # FEATURE 10 — GAUSSIAN SEPARABILITY
+    # =========================================================
+
+    async def apply_separable_blur(self, e):
+        await self._gaussian_blur(separable=True)
+
+    async def apply_full_2d_blur(self, e):
+        await self._gaussian_blur(separable=False)
+
+    async def _gaussian_blur(self, separable):
+        if not self._require_image():
+            return
+
+        view = self.gaussian_view
+        size = view.get_kernel_size()
+        sigma = view.get_sigma()
+        source = self._image_array()
+
+        function = gaussian_blur_separable if separable else gaussian_blur_2d
+        label = "Separable" if separable else "Full 2D"
+
+        self._set_busy(True, f"{label} Gaussian blur…")
+
+        try:
+            result, elapsed = await self._run(function, source, size, sigma)
+
+            self._set_processed_pil(
+                self._to_pil(result),
+                f"{label} Gaussian • {size}×{size}, σ={sigma}",
+                f"Completed in {self._seconds(elapsed)}.",
+            )
+
+            key = "sep_time" if separable else "full_time"
+            view.metrics.set_values(
+                {key: self._seconds(elapsed)},
+                note="Run the benchmark to compare both paths fairly.",
+            )
+
+        except Exception as error:
+            self._toast(f"Gaussian blur error: {error}", error=True)
+
+        finally:
+            self._set_busy(False)
+
+    async def benchmark_separability(self, e):
+        if not self._require_image():
+            return
+
+        view = self.gaussian_view
+        size = view.get_kernel_size()
+        sigma = view.get_sigma()
+        source = self._image_array()
+
+        pixels = source.shape[0] * source.shape[1]
+        if pixels > 400_000:
+            self._toast(
+                "That image is large for a pure-Python benchmark. "
+                "Use a 128×128 image for timing runs.",
+                error=True,
+            )
+
+        self._set_busy(True, "Benchmarking separable vs full 2D…")
+
+        try:
+            timing, _ = await self._run(
+                compare_execution_time,
+                source,
+                size,
+                sigma,
+                1,
+            )
+            equality, _ = await self._run(
+                compare_gaussian_results,
+                source,
+                size,
+                sigma,
+            )
+            theory = theoretical_operations(size)
+
+            self._set_processed_pil(
+                self._to_pil(equality["separable"]),
+                f"Separable Gaussian • {size}×{size}",
+                "Separable output shown; it matches the full 2D result.",
+            )
+
+            view.metrics.set_values(
+                {
+                    "full_time": self._seconds(timing["full_2d_time"]),
+                    "sep_time": self._seconds(timing["separable_time"]),
+                    "speedup": f"{timing['speedup']:.2f}×",
+                    "theory": f"{theory['theoretical_speedup']:.2f}×",
+                    "mae": f"{equality['mean_absolute_error']:.2e}",
+                    "max_diff": f"{equality['max_difference']:.0f} level",
+                },
+                note=f"{theory['full_2d_operations_per_pixel']} vs "
+                     f"{theory['separable_operations_per_pixel']} "
+                     f"operations per pixel. Measured speed-up trails "
+                     f"theory because Python loop overhead dominates.",
+            )
+
+        except Exception as error:
+            self._toast(f"Benchmark error: {error}", error=True)
+
+        finally:
+            self._set_busy(False)
+
+    # =========================================================
+    # FEATURE 7 — MOTION BLUR
+    # =========================================================
+
+    async def apply_motion_blur(self, e):
+        if not self._require_image():
+            return
+
+        view = self.motion_view
+        length = view.get_length()
+        angle = view.get_angle()
+        source = self._image_array()
+
+        self._set_busy(True, f"Applying motion blur • {length}px at {angle}°…")
+
+        try:
+            result, elapsed = await self._run(
+                motion_blur_with_kernel,
+                source,
+                length,
+                angle,
+            )
+
+            self.motion_blurred = np.asarray(result["blurred"])
+            self.motion_kernel = np.asarray(result["kernel"])
+            self.motion_params = (length, angle)
+
+            psnr = calculate_psnr(source, self.motion_blurred)
+
+            self._set_processed_pil(
+                self._to_pil(self.motion_blurred),
+                f"Motion Blur • {length}px at {angle}°",
+                f"Blurred in {self._seconds(elapsed)}.",
+            )
+
+            view.metrics.set_values(
+                {
+                    "kernel": f"{result['length']}×{result['length']}",
+                    "angle": f"{angle}°",
+                    "psnr": self._psnr_text(psnr),
+                    "elapsed": self._seconds(elapsed),
+                },
+                note="The kernel is stored exactly, which is what makes "
+                     "honest deconvolution possible.",
+            )
+
+            view.set_handoff(
+                f"Kernel ready for Restoration "
+                f"({result['length']}×{result['length']}, {angle}°).",
+            )
+
+        except Exception as error:
+            self._toast(f"Motion blur error: {error}", error=True)
+
+        finally:
+            self._set_busy(False)
+
+    async def show_motion_kernel(self, e):
+        view = self.motion_view
+        length = view.get_length()
+        angle = view.get_angle()
+
+        self._set_busy(True, "Building motion kernel…")
+
+        try:
+            kernel, _ = await self._run(create_motion_kernel, length, angle)
+            kernel = np.asarray(kernel)
+
+            display = kernel / kernel.max() * 255.0
+
+            self._set_processed_bytes(
+                await asyncio.to_thread(
+                    self._panel_figure,
+                    [(display, f"{kernel.shape[0]}×{kernel.shape[0]} PSF")],
+                    f"Motion kernel • {length}px at {angle}°",
+                ),
+                "Motion Kernel",
+                f"Kernel sums to {kernel.sum():.4f}, so brightness is "
+                f"preserved.",
+            )
+
+        except Exception as error:
+            self._toast(f"Kernel error: {error}", error=True)
+
+        finally:
+            self._set_busy(False)
+
+    # =========================================================
+    # FEATURE 11 — WIENER DECONVOLUTION
+    # =========================================================
+
+    async def _degraded_pair(self, sigma):
+        """Blurred image + its exact kernel, with optional added noise."""
+        source = self._image_array()
+
+        if self.motion_kernel is not None and self.motion_blurred is not None:
+            blurred = self.motion_blurred
+            kernel = self.motion_kernel
+            origin = "kernel from Motion Blur Lab"
+        else:
+            result, _ = await self._run(
+                motion_blur_with_kernel,
+                source,
+                15,
+                0,
+            )
+            blurred = np.asarray(result["blurred"])
+            kernel = np.asarray(result["kernel"])
+            origin = "generated 15px kernel at 0°"
+
+        if sigma > 0:
+            blurred, _ = await self._run(add_blur_noise, blurred, sigma)
+            blurred = np.asarray(blurred)
+            origin += f", noise σ={sigma:.0f}"
+
+        return source, blurred, kernel, origin
+
+    async def restore_with_wiener(self, e):
+        if not self._require_image():
+            return
+
+        view = self.wiener_view
+        k = view.get_k()
+        sigma = view.get_noise_sigma()
+
+        self._set_busy(True, f"Wiener deconvolution • K={k}…")
+
+        try:
+            source, blurred, kernel, origin = await self._degraded_pair(sigma)
+
+            restored, elapsed = await self._run(
+                wiener_deconvolution,
+                blurred,
+                kernel,
+                k,
+            )
+            restored = np.asarray(restored)
+
+            blurred_psnr = calculate_psnr(source, blurred)
+            wiener_psnr = calculate_psnr(source, restored)
+
+            self._set_processed_pil(
+                self._to_pil(restored),
+                f"Wiener Restored • K={k}",
+                f"Restored in {self._seconds(elapsed)}.",
+            )
+
+            view.metrics.set_values(
+                {
+                    "blurred": self._psnr_text(blurred_psnr),
+                    "inverse": "—",
+                    "wiener": self._psnr_text(wiener_psnr),
+                    "gain": f"{wiener_psnr - blurred_psnr:+.2f} dB",
+                    "k": str(k),
+                },
+                note=f"Using {origin}.",
+            )
+
+        except Exception as error:
+            self._toast(f"Restoration error: {error}", error=True)
+
+        finally:
+            self._set_busy(False)
+
+    async def compare_restoration_methods(self, e):
+        if not self._require_image():
+            return
+
+        view = self.wiener_view
+        k = view.get_k()
+        sigma = view.get_noise_sigma()
+
+        self._set_busy(True, "Comparing inverse filtering with Wiener…")
+
+        try:
+            source, blurred, kernel, origin = await self._degraded_pair(sigma)
+
+            inverse, _ = await self._run(
+                inverse_deconvolution,
+                blurred,
+                kernel,
+            )
+            wiener, _ = await self._run(
+                wiener_deconvolution,
+                blurred,
+                kernel,
+                k,
+            )
+
+            inverse = np.asarray(inverse)
+            wiener = np.asarray(wiener)
+
+            blurred_psnr = calculate_psnr(source, blurred)
+            inverse_psnr = calculate_psnr(source, inverse)
+            wiener_psnr = calculate_psnr(source, wiener)
+
+            panels = [
+                (source, "Original"),
+                (blurred, f"Degraded\n{self._psnr_text(blurred_psnr)}"),
+                (inverse, f"Inverse filter\n{self._psnr_text(inverse_psnr)}"),
+                (wiener, f"Wiener K={k}\n{self._psnr_text(wiener_psnr)}"),
+            ]
+
+            image_bytes = await asyncio.to_thread(
+                self._panel_figure,
+                panels,
+                "Inverse filtering vs Wiener deconvolution",
+            )
+
+            self._set_processed_bytes(
+                image_bytes,
+                "Restoration Comparison",
+                f"Wiener leads inverse by "
+                f"{wiener_psnr - inverse_psnr:+.2f} dB.",
+            )
+
+            view.metrics.set_values(
+                {
+                    "blurred": self._psnr_text(blurred_psnr),
+                    "inverse": self._psnr_text(inverse_psnr),
+                    "wiener": self._psnr_text(wiener_psnr),
+                    "gain": f"{wiener_psnr - inverse_psnr:+.2f} dB",
+                    "k": str(k),
+                },
+                note=f"Using {origin}. With no noise the inverse filter "
+                     f"often wins — add noise to see it collapse.",
+            )
+
+        except Exception as error:
+            self._toast(f"Comparison error: {error}", error=True)
+
+        finally:
+            self._set_busy(False)
+
+    async def sweep_wiener_k(self, e):
+        if not self._require_image():
+            return
+
+        view = self.wiener_view
+        sigma = view.get_noise_sigma()
+        ladder = view.k_ladder()
+
+        self._set_busy(True, "Sweeping the K parameter…")
+
+        try:
+            source, blurred, kernel, origin = await self._degraded_pair(sigma)
+
+            blurred_psnr = calculate_psnr(source, blurred)
+            inverse, _ = await self._run(
+                inverse_deconvolution,
+                blurred,
+                kernel,
+            )
+            inverse_psnr = calculate_psnr(source, np.asarray(inverse))
+
+            scores = []
+            for k in ladder:
+                restored, _ = await self._run(
+                    wiener_deconvolution,
+                    blurred,
+                    kernel,
+                    k,
+                )
+                scores.append(calculate_psnr(source, np.asarray(restored)))
+
+            best_index = int(np.argmax(scores))
+            best_k = ladder[best_index]
+            best_psnr = scores[best_index]
+
+            image_bytes = await asyncio.to_thread(
+                self._build_k_sweep_plot,
+                ladder,
+                scores,
+                blurred_psnr,
+                inverse_psnr,
+                best_k,
+                best_psnr,
+            )
+
+            self._set_processed_bytes(
+                image_bytes,
+                "Wiener K Sweep",
+                f"Best K = {best_k} at {self._psnr_text(best_psnr)}.",
+            )
+
+            view.metrics.set_values(
+                {
+                    "blurred": self._psnr_text(blurred_psnr),
+                    "inverse": self._psnr_text(inverse_psnr),
+                    "wiener": self._psnr_text(best_psnr),
+                    "gain": f"{best_psnr - inverse_psnr:+.2f} dB",
+                    "k": f"{best_k} (best)",
+                },
+                note=f"Using {origin}. Optimal K rises with noise level.",
+            )
+
+        except Exception as error:
+            self._toast(f"Sweep error: {error}", error=True)
+
+        finally:
+            self._set_busy(False)
+
+    def _build_k_sweep_plot(
+        self,
+        ladder,
+        scores,
+        blurred_psnr,
+        inverse_psnr,
+        best_k,
+        best_psnr,
+    ):
+        fig, ax = plt.subplots(figsize=(8.4, 4.6))
+        fig.patch.set_facecolor("#0A0F19")
+        ax.set_facecolor("#0A0F19")
+
+        ax.plot(
+            ladder,
+            scores,
+            marker="o",
+            color="#A78BFA",
+            label="Wiener",
+        )
+        ax.axhline(
+            blurred_psnr,
+            color="#8FA0B8",
+            linestyle=":",
+            label="Degraded input",
+        )
+        ax.axhline(
+            inverse_psnr,
+            color="#EF4444",
+            linestyle="--",
+            label="Inverse filter",
+        )
+        ax.scatter(
+            [best_k],
+            [best_psnr],
+            s=90,
+            color="#10B981",
+            zorder=5,
+            label=f"Best K = {best_k}",
+        )
+
+        ax.set_xscale("log")
+        ax.set_xlabel("K (regularisation)", color="#CBD5E1")
+        ax.set_ylabel("PSNR (dB)", color="#CBD5E1")
+        ax.set_title(
+            "Restoration quality against K",
+            color="#22D3EE",
+        )
+        ax.tick_params(colors="#8FA0B8")
+        ax.grid(True, alpha=0.15, color="#8FA0B8")
+
+        legend = ax.legend(facecolor="#111827", edgecolor="#26344D")
+        for text in legend.get_texts():
+            text.set_color("#CBD5E1")
+
+        for spine in ax.spines.values():
+            spine.set_color("#26344D")
+
+        fig.tight_layout()
+        return self._figure_to_png_bytes(fig)
 
     # =========================================================
     # FEATURE 4 — FREQUENCY EDITOR
