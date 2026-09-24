@@ -94,6 +94,7 @@ from ui.views.texture_view import TextureView
 from ui.views.hybrid_view import HybridView
 from ui.views.color_view import ColorView
 from ui.views.mode_placeholder_view import ModePlaceholderView
+from ui.views.save_earth_view import SaveEarthView
 from ui.views.learn_convolution_view import LearnConvolutionView
 from ui.views.learn_restore_view import LearnRestoreView
 from ui.views.learn_noise_view import LearnNoiseView
@@ -421,21 +422,17 @@ class ImageProcessorApp:
     def _build_mode_views(self):
         """Stages for the learning and game modes, keyed by route.
 
-        SaveEarth is still a placeholder; its real game view will
-        replace the entry below without any routing changes.
+        SaveEarth is the playable game view (ui/views/save_earth_view.py);
+        _show_feature() calls its start()/stop() on navigation.
         """
         self.learn_convolution_view = LearnConvolutionView(self.page)
         self.learn_restore_view = LearnRestoreView(self.page)
         self.learn_noise_view = LearnNoiseView(self.page)
         self.learn_resize_view = LearnResizeView(self.page)
 
-        self.save_earth_view = ModePlaceholderView(
-            badge="SAVEEARTH  •  GAME MODE",
-            title="Defend the planet with signal processing",
-            subtitle="A mini-game where image-processing tools are your powers.",
-            icon=ft.Icons.PUBLIC,
-            accent=AppColors.GREEN_LIGHT,
-            chapters=["Game design in progress"],
+        self.save_earth_view = SaveEarthView(
+            self.page,
+            on_open_discover=lambda key: self._navigate_to(self.route(key)),
         )
 
         return {
@@ -743,6 +740,10 @@ class ImageProcessorApp:
             self.learn_noise_view.stop()
         if key != "learn_resize":
             self.learn_resize_view.stop()
+        if key != "save_earth":
+            self.save_earth_view.stop()
+        else:
+            self.save_earth_view.start()
 
         # Persistent navigation on every page.
         self.sidebar.control.visible = True
