@@ -100,6 +100,8 @@ from ui.views.learn_noise_view import LearnNoiseView
 from ui.views.learn_spectrum_view import LearnSpectrumView
 from ui.views.learn_filter_view import LearnFilterView
 from ui.views.learn_compression_view import LearnCompressionView
+from ui.views.learn_texture_view import LearnTextureView
+from ui.views.learn_colour_view import LearnColourView
 from ui.views.learn_resize_view import LearnResizeView
 
 
@@ -433,6 +435,8 @@ class ImageProcessorApp:
         self.learn_spectrum_view = LearnSpectrumView(self.page)
         self.learn_filter_view = LearnFilterView(self.page)
         self.learn_compression_view = LearnCompressionView(self.page)
+        self.learn_texture_view = LearnTextureView(self.page)
+        self.learn_colour_view = LearnColourView(self.page)
         self.learn_resize_view = LearnResizeView(self.page)
 
         self.save_earth_view = ModePlaceholderView(
@@ -451,6 +455,8 @@ class ImageProcessorApp:
             "learn_spectrum": self.learn_spectrum_view,
             "learn_filter": self.learn_filter_view,
             "learn_compression": self.learn_compression_view,
+            "learn_texture": self.learn_texture_view,
+            "learn_colour": self.learn_colour_view,
             "learn_resize": self.learn_resize_view,
             "save_earth": self.save_earth_view,
         }
@@ -756,6 +762,10 @@ class ImageProcessorApp:
             self.learn_filter_view.stop()
         if key != "learn_compression":
             self.learn_compression_view.stop()
+        if key != "learn_texture":
+            self.learn_texture_view.stop()
+        if key != "learn_colour":
+            self.learn_colour_view.stop()
         if key != "learn_resize":
             self.learn_resize_view.stop()
 

@@ -30,7 +30,7 @@ from ui.learning.lesson_shell import LessonShell, mono
 from ui.theme import AppColors
 
 
-PANEL = 190
+PANEL = 188
 DISTANCES = (1, 2, 3, 4, 6, 8)
 
 LOW_ACCENT = palette.INPUT
@@ -95,11 +95,15 @@ class LearnFilterView(LessonShell):
             wrap=True, spacing=14, run_spacing=14,
             controls=[
                 self.picture_card(self.source_image, "THE PICTURE", LOW_ACCENT),
-                self.picture_card(self.spectrum_image, "ITS SPECTRUM", MASK_ACCENT),
-                self.picture_card(self.mask_image, "THE MASK", MASK_ACCENT,
+                self.slot(self.arrow("transform"), width=70),
+                self.picture_card(self.spectrum_image, "SPECTRUM  ·  F(u,v)",
+                                  MASK_ACCENT),
+                self.slot(self.arrow("× mask"), width=70),
+                self.picture_card(self.mask_image, "MASK  ·  M(u,v)", MASK_ACCENT,
                                   self.mask_note),
-                self.picture_card(self.result_image, "WHAT COMES BACK",
-                                  HYBRID_ACCENT, self.result_note),
+                self.slot(self.arrow("back"), width=70),
+                self.picture_card(self.result_image, "RESULT", HYBRID_ACCENT,
+                                  self.result_note),
             ],
         )
 
@@ -177,13 +181,11 @@ class LearnFilterView(LessonShell):
         self.distance_row = ft.Container(
             opacity=0.0,
             animate_opacity=ft.Animation(500, ft.AnimationCurve.EASE_OUT),
-            content=ft.Row(
-                alignment=ft.MainAxisAlignment.CENTER,
-                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                wrap=True, spacing=14, run_spacing=14,
-                controls=[
+            content=self.row([
+                self.slot(
                     ft.Column(
                         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                        alignment=ft.MainAxisAlignment.CENTER,
                         spacing=6,
                         controls=[
                             ft.Container(
@@ -194,15 +196,16 @@ class LearnFilterView(LessonShell):
                             ),
                             label,
                         ],
-                    )
-                    for image, label, _ in self.distance_images
-                ],
-            ),
+                    ),
+                    width=210, height=240,
+                )
+                for image, label, _ in self.distance_images
+            ]),
         )
 
         self.hybrid_big_card = self.picture_card(
             self.hybrid_image, "THE HYBRID", HYBRID_ACCENT)
-        self.hybrid_big_card.opacity = 0.0
+        self.show(self.hybrid_big_card, False)
 
         return [self.filter_row, self.ringing_card, self.hybrid_card,
                 self.hybrid_big_card, self.distance_row]
@@ -279,11 +282,11 @@ class LearnFilterView(LessonShell):
     # =========================================================
 
     def apply_chapter_state(self, chapter):
-        self.filter_row.opacity = 1.0 if chapter <= 2 else 0.0
-        self.ringing_card.opacity = 1.0 if chapter == 2 else 0.0
-        self.hybrid_card.opacity = 1.0 if chapter == 3 else 0.0
-        self.hybrid_big_card.opacity = 1.0 if chapter >= 3 else 0.0
-        self.distance_row.opacity = 1.0 if chapter == 4 else 0.0
+        self.show(self.filter_row, chapter <= 2)
+        self.show(self.ringing_card, chapter == 2)
+        self.show(self.hybrid_card, chapter == 3)
+        self.show(self.hybrid_big_card, chapter >= 3)
+        self.show(self.distance_row, chapter == 4)
 
         if chapter <= 2:
             self.high_pass = chapter == 1
@@ -363,7 +366,7 @@ class LearnFilterView(LessonShell):
     def set_radius(self, value):
         self.timeline.cancel()
         self.radius = int(value)
-        self.filter_row.opacity = 1.0
+        self.show(self.filter_row, True)
         self._refresh_filter()
         if self.chapter == 2:
             self._refresh_ringing()
@@ -400,7 +403,7 @@ class LearnFilterView(LessonShell):
     def set_mode(self, high_pass):
         self.timeline.cancel()
         self.high_pass = high_pass
-        self.filter_row.opacity = 1.0
+        self.show(self.filter_row, True)
         self._refresh_filter()
         self.caption_text.value = (
             "Keeping only the fast waves leaves the edges."
@@ -412,7 +415,7 @@ class LearnFilterView(LessonShell):
     def set_cutoff(self, value):
         self.timeline.cancel()
         self.cutoff = int(value)
-        self.hybrid_big_card.opacity = 1.0
+        self.show(self.hybrid_big_card, True)
         self._refresh_hybrid()
         self._sync_labels()
         self.caption_text.value = (
@@ -443,11 +446,11 @@ class LearnFilterView(LessonShell):
     async def _scene_low(self, gen):
         tl = self.timeline
 
-        self.ringing_card.opacity = 0.0
-        self.hybrid_card.opacity = 0.0
-        self.hybrid_big_card.opacity = 0.0
-        self.distance_row.opacity = 0.0
-        self.filter_row.opacity = 1.0
+        self.show(self.ringing_card, False)
+        self.show(self.hybrid_card, False)
+        self.show(self.hybrid_big_card, False)
+        self.show(self.distance_row, False)
+        self.show(self.filter_row, True)
         self.high_pass = False
         self.softness = 0
         tl.push(gen, self.control)
@@ -510,7 +513,7 @@ class LearnFilterView(LessonShell):
         self.softness = 0
         self._refresh_filter()
         self._refresh_ringing()
-        self.ringing_card.opacity = 1.0
+        self.show(self.ringing_card, True)
         tl.push(gen, self.control)
 
         await self.say(gen, "There is a catch, and it is worth seeing.",
@@ -538,11 +541,11 @@ class LearnFilterView(LessonShell):
     async def _scene_hybrid(self, gen):
         tl = self.timeline
 
-        self.filter_row.opacity = 0.0
-        self.ringing_card.opacity = 0.0
+        self.show(self.filter_row, False)
+        self.show(self.ringing_card, False)
         self._refresh_hybrid()
-        self.hybrid_card.opacity = 1.0
-        self.hybrid_big_card.opacity = 1.0
+        self.show(self.hybrid_card, True)
+        self.show(self.hybrid_big_card, True)
         tl.push(gen, self.control)
 
         await self.say(gen, f"Here is the trick that gets the most attention. Two "
@@ -567,8 +570,8 @@ class LearnFilterView(LessonShell):
     async def _scene_distance(self, gen):
         tl = self.timeline
 
-        self.hybrid_card.opacity = 0.0
-        self.distance_row.opacity = 1.0
+        self.show(self.hybrid_card, False)
+        self.show(self.distance_row, True)
         tl.push(gen, self.control)
 
         await self.say(gen, "Now step back from the screen. Or, since we can do it "

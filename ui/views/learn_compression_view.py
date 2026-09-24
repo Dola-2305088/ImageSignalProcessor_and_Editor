@@ -28,7 +28,7 @@ from ui.learning.lesson_shell import LessonShell, mono
 from ui.theme import AppColors
 
 
-PANEL = 200
+PANEL = 188
 CURVE_W, CURVE_H = 620, 150
 
 KEPT_ACCENT = palette.PRODUCT
@@ -82,19 +82,14 @@ class LearnCompressionView(LessonShell):
             self.kept_image, "REBUILT FROM WHAT WE KEPT", KEPT_ACCENT,
             self.kept_note)
         self.spectrum_card = self.picture_card(
-            self.spectrum_image, "THE WAVES WE KEPT", palette.KERNEL_FRAME,
+            self.spectrum_image, "KEPT  ·  the largest |F(u,v)|", palette.KERNEL_FRAME,
             self.spectrum_note)
         self.error_card = self.picture_card(
             self.error_image, "WHAT WENT MISSING", LOST_ACCENT, self.error_note)
-        self.error_card.opacity = 0.0
+        self.show(self.error_card, False)
 
-        pictures = ft.Row(
-            alignment=ft.MainAxisAlignment.CENTER,
-            vertical_alignment=ft.CrossAxisAlignment.START,
-            wrap=True, spacing=14, run_spacing=14,
-            controls=[self.original_card, self.spectrum_card,
-                      self.kept_card, self.error_card],
-        )
+        pictures = self.row([self.original_card, self.spectrum_card,
+                             self.kept_card, self.error_card])
 
         # ---- the energy curve ----
         self.curve_canvas = fc.Canvas(width=CURVE_W, height=CURVE_H, shapes=[])
@@ -279,11 +274,11 @@ class LearnCompressionView(LessonShell):
     # =========================================================
 
     def apply_chapter_state(self, chapter):
-        self.spectrum_card.opacity = 1.0 if chapter >= 1 else 0.0
-        self.kept_card.opacity = 1.0 if chapter >= 1 else 0.0
-        self.error_card.opacity = 1.0 if chapter >= 3 else 0.0
-        self.curve_card.opacity = 1.0 if chapter == 2 else 0.0
-        self.milestone_card.opacity = 1.0 if chapter >= 2 else 0.0
+        self.show(self.spectrum_card, chapter >= 1)
+        self.show(self.kept_card, chapter >= 1)
+        self.show(self.error_card, chapter >= 3)
+        self.show(self.curve_card, chapter == 2)
+        self.show(self.milestone_card, chapter >= 2)
 
         if chapter == 0:
             self.percent = 0.1
@@ -321,8 +316,8 @@ class LearnCompressionView(LessonShell):
     def set_percent(self, percent):
         self.timeline.cancel()
         self.percent = float(percent)
-        self.kept_card.opacity = 1.0
-        self.spectrum_card.opacity = 1.0
+        self.show(self.kept_card, True)
+        self.show(self.spectrum_card, True)
         self._refresh()
         self.caption_text.value = (
             f"Keeping the strongest {self.result['percent']:.2f}% — "
@@ -335,8 +330,8 @@ class LearnCompressionView(LessonShell):
         self.timeline.cancel()
         count = self.trace.count_for_energy(fraction)
         self.percent = 100.0 * count / self.trace.total
-        self.kept_card.opacity = 1.0
-        self.spectrum_card.opacity = 1.0
+        self.show(self.kept_card, True)
+        self.show(self.spectrum_card, True)
         self._refresh()
         self.caption_text.value = (
             f"{count:,} waves — {self.result['percent']:.2f}% of them — already "
@@ -373,11 +368,11 @@ class LearnCompressionView(LessonShell):
     async def _scene_silent(self, gen):
         tl = self.timeline
 
-        self.kept_card.opacity = 0.0
-        self.spectrum_card.opacity = 0.0
-        self.error_card.opacity = 0.0
-        self.curve_card.opacity = 0.0
-        self.milestone_card.opacity = 0.0
+        self.show(self.kept_card, False)
+        self.show(self.spectrum_card, False)
+        self.show(self.error_card, False)
+        self.show(self.curve_card, False)
+        self.show(self.milestone_card, False)
         tl.push(gen, self.control)
 
         await self.say(gen, "This picture is 9,216 waves added together. Here is "
@@ -385,8 +380,8 @@ class LearnCompressionView(LessonShell):
 
         self.percent = 0.1
         self._refresh()
-        self.kept_card.opacity = 1.0
-        self.spectrum_card.opacity = 1.0
+        self.show(self.kept_card, True)
+        self.show(self.spectrum_card, True)
         tl.push(gen, self.control)
         await tl.wait(gen, 2.0)
 
@@ -433,8 +428,8 @@ class LearnCompressionView(LessonShell):
     async def _scene_howfew(self, gen):
         tl = self.timeline
 
-        self.curve_card.opacity = 1.0
-        self.milestone_card.opacity = 1.0
+        self.show(self.curve_card, True)
+        self.show(self.milestone_card, True)
         self._draw_curve(marker=self.result)
         tl.push(gen, self.control)
 
@@ -464,8 +459,8 @@ class LearnCompressionView(LessonShell):
 
         self.percent = 1.0
         self._refresh()
-        self.error_card.opacity = 1.0
-        self.curve_card.opacity = 0.0
+        self.show(self.error_card, True)
+        self.show(self.curve_card, False)
         tl.push(gen, self.control)
 
         await self.say(gen, "Nothing is free. Here is exactly what the deleted "
@@ -487,8 +482,8 @@ class LearnCompressionView(LessonShell):
 
         self.percent = 5.0
         self._refresh()
-        self.error_card.opacity = 1.0
-        self.milestone_card.opacity = 1.0
+        self.show(self.error_card, True)
+        self.show(self.milestone_card, True)
         tl.push(gen, self.control)
 
         await self.say(gen, "This is, in outline, what JPEG does to every photograph "

@@ -23,9 +23,34 @@ from ui.learning.scene_engine import Timeline
 from ui.theme import AppAnimations, AppColors, AppLayout
 
 
+# One visual language across every lesson, so a colour always means
+# the same thing and cards never disagree about size or spacing.
+ROLE = {
+    "source": palette.INPUT,          # what we started with
+    "tool": palette.KERNEL_FRAME,     # the kernel, mask or transform
+    "result": palette.PRODUCT,        # what came out
+    "measure": "#34D399",             # a measured, checkable number
+    "warn": palette.KERNEL,           # the artifact or the cost
+}
+
+CARD_RADIUS = 16
+CARD_PADDING = 14
+CARD_GAP = 16
+NOTE_HEIGHT = 18          # reserved, so cards with and without notes align
+CAPTION_HEIGHT = 66       # reserved, so the stage never jumps
+
+
 def mono(size, color):
     return dict(size=size, color=color, weight=ft.FontWeight.BOLD,
                 font_family="Consolas")
+
+
+def card_gradient():
+    return ft.LinearGradient(
+        begin=ft.Alignment.TOP_LEFT,
+        end=ft.Alignment.BOTTOM_RIGHT,
+        colors=["#121A2B", "#0C1220"],
+    )
 
 
 class LessonShell:
@@ -87,6 +112,20 @@ class LessonShell:
             ),
         )
 
+        self.progress = ft.Container(
+            width=0,
+            height=3,
+            border_radius=2,
+            bgcolor=self.ACCENT,
+            animate=ft.Animation(400, ft.AnimationCurve.EASE_OUT),
+        )
+        progress_track = ft.Container(
+            height=3,
+            border_radius=2,
+            bgcolor=AppColors.SURFACE_3,
+            content=ft.Row(controls=[self.progress]),
+        )
+
         stage = ft.Container(
             padding=ft.Padding.symmetric(horizontal=20, vertical=18),
             border_radius=AppLayout.CARD_RADIUS,
@@ -111,8 +150,8 @@ class LessonShell:
         ]
 
         self.control = ft.Column(
-            spacing=16,
-            controls=[header, stage,
+            spacing=14,
+            controls=[header, progress_track, stage,
                       ft.ResponsiveRow(spacing=14, run_spacing=14, controls=panels)],
         )
         return self.control
@@ -150,13 +189,20 @@ class LessonShell:
                                     color=self.ACCENT)
         self.caption_text = ft.Text("", size=16, weight=ft.FontWeight.W_600,
                                     color=AppColors.TEXT,
-                                    text_align=ft.TextAlign.CENTER)
+                                    text_align=ft.TextAlign.CENTER,
+                                    max_lines=2)
+
+        # The height is reserved rather than measured: a one-line
+        # caption and a two-line caption must not shift everything
+        # below them.
         self.caption = ft.Container(
-            width=780,
+            width=820,
+            height=CAPTION_HEIGHT,
+            alignment=ft.Alignment.TOP_CENTER,
             opacity=1.0,
             animate_opacity=ft.Animation(220, ft.AnimationCurve.EASE_OUT),
             content=ft.Column(
-                spacing=3,
+                spacing=4,
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 controls=[self.caption_step, self.caption_text],
             ),
@@ -166,8 +212,8 @@ class LessonShell:
     def panel(self, title, subtitle, icon, accent, body):
         return ft.Container(
             padding=18,
-            border_radius=AppLayout.CARD_RADIUS,
-            bgcolor=AppColors.SURFACE,
+            border_radius=CARD_RADIUS,
+            gradient=card_gradient(),
             border=ft.Border.all(1, AppColors.BORDER),
             content=ft.Column(
                 spacing=14,
@@ -216,33 +262,128 @@ class LessonShell:
             ),
         )
 
-    def picture_card(self, image_control, title, accent, note=None, opacity=1.0):
+    def card_title(self, title, accent):
+        """A small colour dot and a spaced caps label."""
+        return ft.Row(
+            tight=True,
+            spacing=7,
+            alignment=ft.MainAxisAlignment.CENTER,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[
+                ft.Container(width=7, height=7, border_radius=4, bgcolor=accent),
+                ft.Text(title, size=9, weight=ft.FontWeight.BOLD, color=accent),
+            ],
+        )
+
+    def picture_card(self, image_control, title, accent, note=None,
+                     opacity=1.0, picture=188):
+        """A card whose footprint never changes.
+
+        Width and height are fixed from the picture size, so a row of
+        them lines up on both edges whether or not each one has a note,
+        and so nothing shifts when a card fades in or out.
+        """
         controls = [
-            ft.Text(title, size=9, weight=ft.FontWeight.BOLD, color=accent),
+            self.card_title(title, accent),
             ft.Container(
-                border_radius=14,
+                border_radius=13,
                 border=ft.Border.all(1.4, palette.argb("88", accent)),
-                shadow=ft.BoxShadow(blur_radius=24, spread_radius=-8,
+                shadow=ft.BoxShadow(blur_radius=26, spread_radius=-9,
                                     color=palette.argb("66", accent)),
                 content=image_control,
             ),
+            # Reserved line: cards with a note and cards without still
+            # end at the same height, so a row of them stays level.
+            ft.Container(height=NOTE_HEIGHT,
+                         alignment=ft.Alignment.CENTER,
+                         content=note),
         ]
-        if note is not None:
-            controls.append(note)
 
         return ft.Container(
+            width=picture + 2 * CARD_PADDING + 4,
+            height=picture + 2 * CARD_PADDING + NOTE_HEIGHT + 34,
             opacity=opacity,
             animate_opacity=ft.Animation(500, ft.AnimationCurve.EASE_OUT),
-            padding=12,
-            border_radius=14,
-            bgcolor=AppColors.SURFACE_DARK,
+            padding=CARD_PADDING,
+            border_radius=CARD_RADIUS,
+            gradient=card_gradient(),
             border=ft.Border.all(1, AppColors.BORDER_SOFT),
+            alignment=ft.Alignment.TOP_CENTER,
             content=ft.Column(
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                spacing=8,
+                alignment=ft.MainAxisAlignment.START,
+                spacing=9,
                 controls=controls,
             ),
         )
+
+    def slot(self, control, width=220, height=264):
+        """A fixed box for anything that is not a picture card.
+
+        Arrows, stat blocks and small groups sit in one of these so a
+        mixed row still aligns on a single baseline.
+        """
+        return ft.Container(
+            width=width,
+            height=height,
+            alignment=ft.Alignment.CENTER,
+            content=control,
+        )
+
+    def stat(self, label, value_control, accent):
+        """A labelled number, aligned with its neighbours."""
+        return ft.Container(
+            padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+            border_radius=11,
+            bgcolor=palette.argb("14", accent),
+            border=ft.Border.all(1, palette.argb("44", accent)),
+            content=ft.Column(
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                spacing=1,
+                controls=[
+                    ft.Text(label.upper(), size=8, weight=ft.FontWeight.BOLD,
+                            color=AppColors.MUTED),
+                    value_control,
+                ],
+            ),
+        )
+
+    def arrow(self, label=None, accent=None):
+        """A consistent connector between two cards."""
+        return ft.Column(
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            spacing=3,
+            controls=[
+                ft.Icon(ft.Icons.ARROW_FORWARD_ROUNDED, size=22,
+                        color=accent or AppColors.MUTED),
+                ft.Text(label or "", size=8, color=AppColors.MUTED),
+            ],
+        )
+
+    def row(self, controls, align_top=False):
+        """The standard stage row: centred, wrapping, evenly spaced."""
+        return ft.Row(
+            alignment=ft.MainAxisAlignment.CENTER,
+            vertical_alignment=(ft.CrossAxisAlignment.START if align_top
+                                else ft.CrossAxisAlignment.CENTER),
+            wrap=True,
+            spacing=CARD_GAP,
+            run_spacing=CARD_GAP,
+            controls=controls,
+        )
+
+    @staticmethod
+    def show(control, visible):
+        """Fade a card in or out, and give its space back when hidden.
+
+        Reserving the space of a hidden card sounds tidier, but a row
+        is centred on everything it contains, including what cannot be
+        seen: one hidden card pushes the whole comparison off to the
+        left. Cards keep a fixed footprint (see picture_card) so the
+        ones that remain still line up with each other.
+        """
+        control.opacity = 1.0 if visible else 0.0
+        control.visible = bool(visible)
 
     def slider_row(self, label, value_text, slider):
         return ft.Column(
@@ -352,17 +493,24 @@ class LessonShell:
         )
 
         self.refresh_pills()
+        self.refresh_progress()
         if not first_build:
             self.safe_update(self.control)
 
     def enter_chapter(self, index):
         self.chapter = index
+        self.refresh_progress()
         self.refresh_pills()
         for pill in self.chapter_pills:
             self.safe_update(pill)
 
     def step_label(self, chapter):
         return f"CHAPTER {chapter + 1}  ·  {self.CHAPTERS[chapter].upper()}"
+
+    def refresh_progress(self):
+        share = (self.chapter + 1) / max(1, len(self.CHAPTERS))
+        self.progress.width = 1180 * share
+        self.safe_update(self.progress)
 
     def refresh_pills(self):
         for index, pill in enumerate(self.chapter_pills):
