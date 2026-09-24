@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+* text=auto eol=lfgame/_smoke_out/

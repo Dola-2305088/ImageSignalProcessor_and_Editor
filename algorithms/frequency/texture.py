@@ -192,20 +192,34 @@ def analyze_texture(
     ] = 0
 
 
-    # =====================================================
-    # STEP 7: FIND STRONGEST FREQUENCY PEAK
-    # =====================================================
+# =====================================================
+# STEP 7: FIND STRONGEST FREQUENCY PEAK
+# =====================================================
 
-    peak_index = np.argmax(
-        search_magnitude
-    )
+    max_frequency_strength = np.max(search_magnitude)
+
+    # No texture / no non-DC frequency exists
+    if max_frequency_strength <= 1e-12:
+        return {
+            "spectrum": spectrum_image,
+            "frequency_x": 0.0,
+            "frequency_y": 0.0,
+            "radial_frequency": 0.0,
+            "frequency_angle": 0.0,
+            "texture_angle": 0.0,
+            "orientation": "None",
+            "spacing_pixels": float("inf"),
+            "periodicity_strength": 0.0,
+            "peak_row": None,
+            "peak_col": None
+        }
+
+    peak_index = np.argmax(search_magnitude)
 
     peak_row, peak_col = np.unravel_index(
         peak_index,
         search_magnitude.shape
     )
-
-
     # =====================================================
     # STEP 8: FREQUENCY VECTOR
     # =====================================================

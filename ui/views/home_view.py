@@ -7,6 +7,7 @@ import flet.canvas as fc
 
 from ui.theme import AppAnimations, AppColors
 from ui.app_preferences import WORKSPACE_OPTIONS
+from ui.components.sidebar import route_index
 
 GALAXY_IMAGE = "images/Nasa2.jpg"
 AETHERIS_ORBIT_LOGO = "images/logo.png"
@@ -36,6 +37,63 @@ DEMO_PROJECTS = [
         "image": "images/demo.jpg",
     },
 ]
+
+# ============================================================
+# APP MODES (Home hero)
+# ============================================================
+# Each card has a rotating "comet" of light travelling around its border.
+# rim: resting border colour; tint: icon badge fill.
+MODE_CARDS = [
+    {
+        "key": "explore",
+        "title": "Explore",
+        "tag": "EDIT",
+        "subtitle": "Open your own image and apply 12 spatial & frequency tools",
+        "icon": ft.Icons.EXPLORE_OUTLINED,
+        "route": "blur_sharpen",
+        "accent": "#7D8CFF",
+        "accent_2": "#A65CF6",
+        "rim": "#34406A",
+        "tint": "#1D2450",
+    },
+    {
+        "key": "discover",
+        "title": "Discover",
+        "tag": "LEARN",
+        "subtitle": "Watch convolution and Fourier transforms come alive",
+        "icon": ft.Icons.AUTO_STORIES_OUTLINED,
+        "route": "learn_convolution",
+        "accent": "#FBBF24",
+        "accent_2": "#F472B6",
+        "rim": "#4B402A",
+        "tint": "#2A2110",
+    },
+    {
+        "key": "save_earth",
+        "title": "SaveEarth",
+        "tag": "PLAY",
+        "subtitle": "A mini-game where image processing saves the planet",
+        "icon": ft.Icons.PUBLIC,
+        "route": "save_earth",
+        "accent": "#34D399",
+        "accent_2": "#22D3EE",
+        "rim": "#24493F",
+        "tint": "#0D2A24",
+    },
+]
+
+MODE_CARD_WIDTH = 430
+MODE_CARD_HEIGHT = 66
+MODE_BORDER_WIDTH = 1.6
+MODE_IDLE_SPEED = 0.55        # radians/sec the border light travels at rest
+MODE_HOVER_SPEED = 2.1        # ...and while the pointer is over the card
+MODE_UPDATE_INTERVAL = 0.04   # ~25fps is plenty for a border shimmer
+
+
+def _argb(alpha_hex: str, color: str) -> str:
+    """Flet hex colours are #AARRGGBB; prepend an alpha to #RRGGBB."""
+    return "#" + alpha_hex + color.lstrip("#")
+
 
 # Orbit tuning
 ORBIT_FRAME_INTERVAL = 0.02          # ~50fps target
@@ -154,6 +212,12 @@ class HomeView:
         # so no extra background task is required.
         self._workflow_tracks = []
         self._workflow_elapsed = 0.0
+
+        # Home mode cards (Explore / Discover / SaveEarth). Their border
+        # light is advanced by the same Home animation loop as the orbit.
+        self._mode_states = []
+        self._mode_column = None
+        self._mode_update_accum = 0.0
 
         # Seconds spent travelling from one processing stage to the next.
         # A full cycle is intentionally slow and fluid instead of "blinking".
@@ -286,147 +350,7 @@ class HomeView:
         )
 
     def _hero(self):
-        upload = ft.Container(
-            width=410,
-            height=218,
-            padding=ft.Padding.symmetric(horizontal=20, vertical=16),
-            alignment=ft.Alignment.CENTER,
-            bgcolor="#B80A1322",
-            gradient=ft.LinearGradient(
-                colors=["#C30C1627", "#A60B1424", "#9B15142D"],
-            ),
-            border=ft.Border.all(1, "#43536F"),
-            border_radius=18,
-            shadow=ft.BoxShadow(
-                blur_radius=24,
-                spread_radius=-8,
-                offset=ft.Offset(0, 10),
-                color="#42000000",
-            ),
-            ink=True,
-            on_click=self.on_open_image,
-            on_hover=self._hover_upload,
-            animate=ft.Animation(AppAnimations.FAST, ft.AnimationCurve.EASE_OUT),
-            animate_scale=ft.Animation(AppAnimations.FAST, ft.AnimationCurve.EASE_OUT),
-            scale=1.0,
-            content=ft.Column(
-                tight=True,
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                spacing=9,
-                controls=[
-                    ft.Container(
-                        width=54,
-                        height=54,
-                        alignment=ft.Alignment.CENTER,
-                        border_radius=16,
-                        gradient=ft.LinearGradient(
-                            colors=["#293A7B", "#24275F"],
-                        ),
-                        border=ft.Border.all(1, "#6074DA"),
-                        shadow=ft.BoxShadow(
-                            blur_radius=22,
-                            spread_radius=-4,
-                            color="#725B72FF",
-                        ),
-                        content=ft.Icon(
-                            ft.Icons.ADD_PHOTO_ALTERNATE_OUTLINED,
-                            size=27,
-                            color="#EEF2FF",
-                        ),
-                    ),
-                    ft.Text(
-                        "Drop an image to start",
-                        size=15,
-                        weight=ft.FontWeight.W_600,
-                        color=AppColors.TEXT,
-                    ),
-                    ft.Row(
-                        tight=True,
-                        spacing=7,
-                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                        controls=[
-                            ft.Text("or", size=9, color=AppColors.MUTED),
-                            ft.Container(
-                                padding=ft.Padding.symmetric(horizontal=12, vertical=6),
-                                border_radius=9,
-                                bgcolor="#1B2B56",
-                                border=ft.Border.all(1, "#5369D9"),
-                                content=ft.Row(
-                                    tight=True,
-                                    spacing=6,
-                                    controls=[
-                                        ft.Icon(
-                                            ft.Icons.FOLDER_OPEN_OUTLINED,
-                                            size=14,
-                                            color="#AEB9FF",
-                                        ),
-                                        ft.Text(
-                                            "Browse files",
-                                            size=10,
-                                            weight=ft.FontWeight.W_600,
-                                            color="#DCE3FF",
-                                        ),
-                                    ],
-                                ),
-                            ),
-                        ],
-                    ),
-                    ft.Row(
-                        tight=True,
-                        spacing=5,
-                        controls=[
-                            ft.Container(
-                                padding=ft.Padding.symmetric(horizontal=7, vertical=3),
-                                border_radius=6,
-                                bgcolor="#101B2C",
-                                border=ft.Border.all(1, "#2C3B52"),
-                                content=ft.Text("PNG", size=7, color=AppColors.TEXT_SECONDARY),
-                            ),
-                            ft.Container(
-                                padding=ft.Padding.symmetric(horizontal=7, vertical=3),
-                                border_radius=6,
-                                bgcolor="#101B2C",
-                                border=ft.Border.all(1, "#2C3B52"),
-                                content=ft.Text("JPG", size=7, color=AppColors.TEXT_SECONDARY),
-                            ),
-                            ft.Container(
-                                padding=ft.Padding.symmetric(horizontal=7, vertical=3),
-                                border_radius=6,
-                                bgcolor="#101B2C",
-                                border=ft.Border.all(1, "#2C3B52"),
-                                content=ft.Text("TIFF", size=7, color=AppColors.TEXT_SECONDARY),
-                            ),
-                            ft.Container(
-                                padding=ft.Padding.symmetric(horizontal=7, vertical=3),
-                                border_radius=6,
-                                bgcolor="#101B2C",
-                                border=ft.Border.all(1, "#2C3B52"),
-                                content=ft.Text("BMP", size=7, color=AppColors.TEXT_SECONDARY),
-                            ),
-                            ft.Container(
-                                padding=ft.Padding.symmetric(horizontal=7, vertical=3),
-                                border_radius=6,
-                                bgcolor="#101B2C",
-                                border=ft.Border.all(1, "#2C3B52"),
-                                content=ft.Text("WebP", size=7, color=AppColors.TEXT_SECONDARY),
-                            ),
-                        ],
-                    ),
-                    ft.Row(
-                        tight=True,
-                        spacing=6,
-                        controls=[
-                            ft.Icon(ft.Icons.DRAG_INDICATOR, size=13, color=AppColors.MUTED),
-                            ft.Text(
-                                "Drag & drop or click anywhere in this card",
-                                size=8,
-                                color=AppColors.MUTED,
-                            ),
-                        ],
-                    ),
-                ],
-            ),
-        )
+        modes = self._mode_cards()
         return ft.Container(
             height=314,
             padding=ft.Padding.only(left=26, right=20, top=16, bottom=14),
@@ -440,7 +364,7 @@ class HomeView:
                 controls=[
                     ft.Column(spacing=14, controls=[
                         ft.Text("Your Image Processing Universe", size=23, weight=ft.FontWeight.BOLD, color=AppColors.TEXT),
-                        upload,
+                        modes,
                     ]),
                     ft.Container(width=560, height=278, content=self._orbit()),
                 ],
@@ -813,7 +737,13 @@ class HomeView:
                             ft.Button(
                                 content="Start",
                                 icon=ft.Icons.PLAY_ARROW_OUTLINED,
-                                on_click=lambda e: self._navigate(1),
+                                on_click=lambda e: self._navigate(
+                                    route_index(
+                                        "blur_sharpen"
+                                        if spatial
+                                        else "frequency"
+                                    )
+                                ),
                                 bgcolor="#27387C" if spatial else "#15528A",
                                 color=AppColors.TEXT,
                                 style=ft.ButtonStyle(
@@ -1165,7 +1095,7 @@ class HomeView:
             shadow=ft.BoxShadow(blur_radius=0, spread_radius=0, offset=ft.Offset(0, 8), color="#00000000"),
             on_hover=self._hover_project,
             ink=True,
-            on_click=lambda e: self._navigate(1),
+            on_click=lambda e: self._navigate(route_index("blur_sharpen")),
             content=ft.Column(spacing=0, controls=[
                 ft.Image(src=image, height=165, width=600, fit=ft.BoxFit.COVER,
                          gapless_playback=True,
@@ -1206,21 +1136,235 @@ class HomeView:
         )
         e.control.update()
 
+    # =========================================================
+    # MODE CARDS (Explore / Discover / SaveEarth)
+    # =========================================================
+
+    def _mode_cards(self):
+        self._mode_states = []
+        cards = []
+
+        for index, spec in enumerate(MODE_CARDS):
+            # Stagger the starting angle so the three lights never line up.
+            angle = index * 2.1
+            cards.append(self._mode_card(spec, angle))
+
+        self._mode_column = ft.Column(spacing=9, controls=cards)
+        return self._mode_column
+
+    def _mode_card(self, spec, angle):
+        accent = spec["accent"]
+
+        arrow = ft.Container(
+            width=32,
+            height=32,
+            alignment=ft.Alignment.CENTER,
+            border_radius=16,
+            bgcolor=_argb("26", accent),
+            offset=ft.Offset(0, 0),
+            animate_offset=ft.Animation(AppAnimations.NORMAL, ft.AnimationCurve.EASE_OUT),
+            content=ft.Icon(ft.Icons.ARROW_FORWARD_ROUNDED, size=17, color=accent),
+        )
+
+        badge = ft.Container(
+            width=44,
+            height=44,
+            alignment=ft.Alignment.CENTER,
+            border_radius=13,
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment.TOP_LEFT,
+                end=ft.Alignment.BOTTOM_RIGHT,
+                colors=[spec["tint"], "#0B1120"],
+            ),
+            border=ft.Border.all(1, _argb("99", accent)),
+            shadow=ft.BoxShadow(blur_radius=18, spread_radius=-6, color=_argb("80", accent)),
+            animate=ft.Animation(AppAnimations.NORMAL, ft.AnimationCurve.EASE_OUT),
+            content=ft.Icon(spec["icon"], size=23, color=accent),
+        )
+
+        inner = ft.Container(
+            expand=True,
+            border_radius=15,
+            padding=ft.Padding.only(left=11, right=12, top=8, bottom=8),
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment.CENTER_LEFT,
+                end=ft.Alignment.CENTER_RIGHT,
+                colors=["#F50B1426", "#F20A1220", "#F0101329"],
+            ),
+            content=ft.Row(
+                spacing=13,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[
+                    badge,
+                    ft.Column(
+                        expand=True,
+                        spacing=2,
+                        alignment=ft.MainAxisAlignment.CENTER,
+                        controls=[
+                            ft.Row(
+                                spacing=8,
+                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                controls=[
+                                    ft.Text(
+                                        spec["title"],
+                                        size=15,
+                                        weight=ft.FontWeight.BOLD,
+                                        color=AppColors.TEXT,
+                                    ),
+                                    ft.Container(
+                                        padding=ft.Padding.symmetric(horizontal=6, vertical=1),
+                                        border_radius=5,
+                                        bgcolor=_argb("22", accent),
+                                        border=ft.Border.all(1, _argb("55", accent)),
+                                        content=ft.Text(
+                                            spec["tag"],
+                                            size=7,
+                                            weight=ft.FontWeight.BOLD,
+                                            color=accent,
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            ft.Text(
+                                spec["subtitle"],
+                                size=9,
+                                color=AppColors.TEXT_SECONDARY,
+                                no_wrap=True,
+                                overflow=ft.TextOverflow.ELLIPSIS,
+                            ),
+                        ],
+                    ),
+                    arrow,
+                ],
+            ),
+        )
+
+        state = {
+            "spec": spec,
+            "angle": angle,
+            "hovered": False,
+            "arrow": arrow,
+            "badge": badge,
+        }
+
+        # The outer container's gradient *is* the border: a thin padding
+        # lets it show around the dark inner card. Rotating the sweep
+        # gradient makes a comet of light travel around the edge.
+        outer = ft.Container(
+            width=MODE_CARD_WIDTH,
+            height=MODE_CARD_HEIGHT,
+            padding=MODE_BORDER_WIDTH,
+            border_radius=16.5,
+            gradient=self._mode_border_gradient(spec, angle, False),
+            shadow=ft.BoxShadow(
+                blur_radius=22,
+                spread_radius=-9,
+                offset=ft.Offset(0, 8),
+                color="#48000000",
+            ),
+            scale=1.0,
+            animate_scale=ft.Animation(AppAnimations.FAST, ft.AnimationCurve.EASE_OUT),
+            ink=True,
+            tooltip=f"Open {spec['title']}",
+            on_click=lambda e, route=spec["route"]: self._navigate(route_index(route)),
+            on_hover=lambda e, s=state: self._hover_mode(e, s),
+            content=inner,
+        )
+
+        state["outer"] = outer
+        self._mode_states.append(state)
+        return outer
+
     @staticmethod
-    def _hover_upload(e):
+    def _mode_border_gradient(spec, angle, hovered):
+        rim = spec["rim"]
+        accent = spec["accent"]
+        accent_2 = spec["accent_2"]
+
+        if hovered:
+            # Brighter rim with a longer, whiter comet.
+            colors = [
+                _argb("CC", accent_2),
+                _argb("CC", accent_2),
+                accent,
+                "#FFF4F6FF",
+                accent,
+                _argb("CC", accent_2),
+            ]
+            stops = [0.0, 0.35, 0.72, 0.84, 0.94, 1.0]
+        else:
+            # Quiet rim with a single comet: faint tail -> bright head.
+            colors = [
+                rim,
+                rim,
+                _argb("99", accent_2),
+                accent,
+                rim,
+            ]
+            stops = [0.0, 0.5, 0.78, 0.9, 1.0]
+
+        return ft.SweepGradient(
+            center=ft.Alignment.CENTER,
+            colors=colors,
+            stops=stops,
+            rotation=angle,
+        )
+
+    def _hover_mode(self, e, state):
         hovered = str(e.data).lower() == "true"
-        e.control.border = ft.Border.all(
-            1,
-            "#8494FF" if hovered else "#43536F",
+        accent = state["spec"]["accent"]
+
+        state["hovered"] = hovered
+
+        outer = state["outer"]
+        outer.scale = 1.018 if hovered else 1.0
+        outer.gradient = self._mode_border_gradient(
+            state["spec"], state["angle"], hovered
         )
-        e.control.scale = 1.012 if hovered else 1.0
-        e.control.shadow = ft.BoxShadow(
-            blur_radius=32 if hovered else 24,
-            spread_radius=-5 if hovered else -8,
-            offset=ft.Offset(0, 12 if hovered else 10),
-            color="#765D72FF" if hovered else "#42000000",
+        outer.shadow = ft.BoxShadow(
+            blur_radius=34 if hovered else 22,
+            spread_radius=-6 if hovered else -9,
+            offset=ft.Offset(0, 12 if hovered else 8),
+            color=_argb("70", accent) if hovered else "#48000000",
         )
-        e.control.update()
+
+        state["arrow"].offset = ft.Offset(0.18 if hovered else 0, 0)
+        state["arrow"].bgcolor = _argb("44" if hovered else "26", accent)
+
+        state["badge"].shadow = ft.BoxShadow(
+            blur_radius=26 if hovered else 18,
+            spread_radius=-3 if hovered else -6,
+            color=_argb("B0" if hovered else "80", accent),
+        )
+
+        try:
+            outer.update()
+        except Exception:
+            pass
+
+    def _advance_mode_cards(self, dt):
+        if not self._mode_states:
+            return
+
+        for state in self._mode_states:
+            speed = MODE_HOVER_SPEED if state["hovered"] else MODE_IDLE_SPEED
+            state["angle"] = (state["angle"] + speed * dt) % (2 * math.pi)
+
+        # Throttle: a border shimmer does not need the orbit's frame rate.
+        self._mode_update_accum += dt
+        if self._mode_update_accum < MODE_UPDATE_INTERVAL:
+            return
+        self._mode_update_accum = 0.0
+
+        for state in self._mode_states:
+            state["outer"].gradient = self._mode_border_gradient(
+                state["spec"], state["angle"], state["hovered"]
+            )
+
+        try:
+            self._mode_column.update()
+        except Exception:
+            pass
 
     async def start_orbit_animation(self):
         if self._orbit_running:
@@ -1243,6 +1387,10 @@ class HomeView:
                 # Animate Spatial/Frequency workflow signal flow using the
                 # same timing loop as the orbital animation.
                 self._advance_workflow_animation(dt)
+
+                # Travelling light around the Explore / Discover /
+                # SaveEarth card borders.
+                self._advance_mode_cards(dt)
 
                 # Gentle breathing glow behind the center thumbnail.
                 glow_phase += ORBIT_GLOW_SPEED * dt
