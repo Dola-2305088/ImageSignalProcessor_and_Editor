@@ -17,7 +17,7 @@ from algorithms.spatial.blur_sharpen import (
     sharpen_image,
     apply_custom_kernel,
 )
-from algorithms.spatial.edge_detection import detect_edges
+from algorithms.spatial.edge_detection import detect_all_edges, detect_edges
 from algorithms.spatial.noise_cleaner import (
     add_gaussian_noise,
     add_salt_pepper_noise,
@@ -69,7 +69,12 @@ from ui.app_preferences import (
     PreferencesStore,
 )
 from ui.components.top_bar import TopBar
-from ui.components.sidebar import Sidebar, NAV_ITEMS, route_index
+from ui.components.sidebar import (
+    Sidebar,
+    NAV_ITEMS,
+    is_full_page,
+    route_index,
+)
 from ui.components.image_card import ImageCard
 from ui.components.status_bar import StatusBar
 from ui.components.loading_overlay import LoadingOverlay
@@ -88,6 +93,17 @@ from ui.views.compression_view import CompressionView
 from ui.views.texture_view import TextureView
 from ui.views.hybrid_view import HybridView
 from ui.views.color_view import ColorView
+from ui.views.mode_placeholder_view import ModePlaceholderView
+from ui.views.learn_convolution_view import LearnConvolutionView
+from ui.views.learn_restore_view import LearnRestoreView
+from ui.views.learn_noise_view import LearnNoiseView
+from ui.views.learn_resize_view import LearnResizeView
+
+
+# Longest side of the image the algorithms actually process. The manual
+# convolution is a Python loop over every pixel, so full-resolution
+# photos would take minutes per filter.
+MAX_WORKING_SIDE = 720
 
 
 class ImageProcessorApp:
@@ -281,6 +297,9 @@ class ImageProcessorApp:
         for key, view in self.spatial_views.items():
             self.views_by_key[key] = view.control
 
+        for key, view in self._build_mode_views().items():
+            self.views_by_key[key] = view.control
+
         self.feature_views = [
             self.views_by_key[item["key"]] for item in NAV_ITEMS
         ]
@@ -329,6 +348,9 @@ class ImageProcessorApp:
         )
 
         self.page.add(self.root)
+
+        # The lesson stage scales itself to whatever room the window has.
+        self.page.on_resized = self._on_page_resized
 
         # Start in Home mode.
         self.top_bar.set_home_mode(True)
@@ -392,6 +414,38 @@ class ImageProcessorApp:
             "wiener": self.wiener_view,
         }
 
+    # =========================================================
+    # DISCOVER / SAVEEARTH MODES
+    # =========================================================
+
+    def _build_mode_views(self):
+        """Stages for the learning and game modes, keyed by route.
+
+        SaveEarth is still a placeholder; its real game view will
+        replace the entry below without any routing changes.
+        """
+        self.learn_convolution_view = LearnConvolutionView(self.page)
+        self.learn_restore_view = LearnRestoreView(self.page)
+        self.learn_noise_view = LearnNoiseView(self.page)
+        self.learn_resize_view = LearnResizeView(self.page)
+
+        self.save_earth_view = ModePlaceholderView(
+            badge="SAVEEARTH  •  GAME MODE",
+            title="Defend the planet with signal processing",
+            subtitle="A mini-game where image-processing tools are your powers.",
+            icon=ft.Icons.PUBLIC,
+            accent=AppColors.GREEN_LIGHT,
+            chapters=["Game design in progress"],
+        )
+
+        return {
+            "learn_convolution": self.learn_convolution_view,
+            "learn_restore": self.learn_restore_view,
+            "learn_noise": self.learn_noise_view,
+            "learn_resize": self.learn_resize_view,
+            "save_earth": self.save_earth_view,
+        }
+
     # ROUTE HELPER
     # =========================================================
 
@@ -412,6 +466,13 @@ class ImageProcessorApp:
     # =========================================================
     # NAVIGATION
     # =========================================================
+
+    def _on_page_resized(self, e=None):
+        """Keep the Discover stage fitted when the window changes size."""
+        try:
+            self.learn_convolution_view.fit_to_window()
+        except Exception:
+            pass
 
     def _on_sidebar_navigation(self, index):
         self._show_feature(index)
@@ -667,6 +728,21 @@ class ImageProcessorApp:
 
         feature_name = self.sidebar.get_feature_name(index)
         is_home = index == 0
+        full_page = is_full_page(index)
+
+        # Leaving the lesson stops its animation instead of letting it
+        # keep running on a page nobody can see.
+        key = NAV_ITEMS[index]["key"]
+        is_lesson = key == "learn_convolution"
+
+        if not is_lesson:
+            self.learn_convolution_view.stop()
+        if key != "learn_restore":
+            self.learn_restore_view.stop()
+        if key != "learn_noise":
+            self.learn_noise_view.stop()
+        if key != "learn_resize":
+            self.learn_resize_view.stop()
 
         # Persistent navigation on every page.
         self.sidebar.control.visible = True
@@ -674,6 +750,13 @@ class ImageProcessorApp:
         if is_home:
             self.page_content.controls = [
                 self.home_view.control,
+                ft.Container(height=10),
+            ]
+        elif full_page:
+            # Discover / SaveEarth draw their own stage, so the
+            # Original / Processed image cards are left out.
+            self.page_content.controls = [
+                self.feature_views[index],
                 ft.Container(height=10),
             ]
         else:
@@ -685,6 +768,7 @@ class ImageProcessorApp:
 
         self.top_bar.set_active_feature(feature_name)
         self.top_bar.set_home_mode(is_home)
+        self.top_bar.set_image_actions_visible(not full_page)
         self.top_bar.control.visible = not is_home
         self.status_bar.control.visible = not is_home
 
@@ -694,6 +778,10 @@ class ImageProcessorApp:
             self._set_status(f"{feature_name} workspace")
 
         self.page.update()
+
+        if is_lesson:
+            # Now that the stage is mounted its size is known.
+            self.learn_convolution_view.fit_to_window()
 
     # =========================================================
     # FILE / IMAGE HELPERS
@@ -732,7 +820,36 @@ class ImageProcessorApp:
             raise ValueError("The selected image could not be read.")
 
         image = Image.open(BytesIO(raw)).convert("RGB")
+        image, resized = self._fit_working_size(image)
+
+        if resized:
+            self._toast(
+                f"{selected.name} scaled to "
+                f"{image.width}×{image.height} for processing."
+            )
+
         return image, selected.name
+
+    def _fit_working_size(self, image):
+        """Cap the image the algorithms have to chew through.
+
+        Every filter here is a manual, pixel-by-pixel convolution in
+        Python. A 12-megapixel photo would mean roughly 100 million
+        np.sum() calls per pass, which looks like a frozen app. Scaling
+        the longest side down to MAX_WORKING_SIDE keeps every feature
+        interactive while leaving plenty of detail to see.
+        """
+        longest = max(image.width, image.height)
+
+        if longest <= MAX_WORKING_SIDE:
+            return image, False
+
+        working = image.copy()
+        working.thumbnail(
+            (MAX_WORKING_SIDE, MAX_WORKING_SIDE),
+            Image.Resampling.LANCZOS,
+        )
+        return working, True
 
     @staticmethod
     def _pil_to_png_bytes(image):
@@ -1283,11 +1400,14 @@ class ImageProcessorApp:
         self._set_busy(True, "Running all three Sobel modes…")
 
         try:
-            panels = [(source, "Original")]
+            # One pass for all three modes: two convolutions instead of
+            # six, and every panel shares the same display gain, so the
+            # three are directly comparable.
+            results, _ = await self._run(detect_all_edges, source)
 
+            panels = [(source, "Original")]
             for mode in ("horizontal", "vertical", "combined"):
-                edges, _ = await self._run(detect_edges, source, mode)
-                panels.append((np.asarray(edges), mode.title()))
+                panels.append((np.asarray(results[mode]), mode.title()))
 
             image_bytes = await asyncio.to_thread(
                 self._panel_figure,

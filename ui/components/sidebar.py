@@ -1,12 +1,17 @@
 """Grouped navigation sidebar.
 
-The application has 13 destinations (Home + 7 spatial features + 5
-frequency features). A flat list of 13 items is unreadable, so the
-features are organised under two collapsible domain groups that mirror
-the project's core story:
+The application has three modes, chosen from the Home page:
+
+    Explore    -> Spatial domain + Frequency domain feature pages
+    Discover   -> animated lessons (learning mode)
+    SaveEarth  -> the image-processing mini-game
+
+Feature pages are organised under collapsible groups that mirror the
+project's core story:
 
     Spatial domain    -> convolution based processing
     Frequency domain  -> 2D DFT based processing
+    Discover          -> lessons that animate those operations
 
 Every destination has a stable string ``key``. Callers should resolve a
 key to an index with ``Sidebar.index_of(key)`` instead of hardcoding
@@ -24,6 +29,7 @@ from ui.theme import AppAnimations, AppColors, AppLayout
 
 SPATIAL = "spatial"
 FREQUENCY = "frequency"
+DISCOVER = "discover"
 
 GROUPS = {
     SPATIAL: {
@@ -39,6 +45,14 @@ GROUPS = {
         "accent": AppColors.CYAN,
         "accent_bg": "#0C2C36",
         "accent_border": "#1F6274",
+    },
+    DISCOVER: {
+        "title": "Discover",
+        "icon": ft.Icons.AUTO_STORIES_OUTLINED,
+        "accent": AppColors.ORANGE_LIGHT,
+        "accent_bg": "#2A2110",
+        "accent_border": "#7A5A1C",
+        "unit": "lessons",
     },
 }
 
@@ -151,6 +165,57 @@ NAV_ITEMS = [
         "selected_icon": ft.Icons.PALETTE,
         "group": FREQUENCY,
     },
+
+    # ------------------------------------------------------------------
+    # DISCOVER (learning mode)
+    # ------------------------------------------------------------------
+    # "full_page" pages own their whole stage: main_window skips the
+    # Original / Processed image cards and the image actions for them.
+    {
+        "key": "learn_convolution",
+        "label": "Convolution",
+        "icon": ft.Icons.GRID_4X4,
+        "selected_icon": ft.Icons.GRID_4X4,
+        "group": DISCOVER,
+        "full_page": True,
+    },
+
+    # ------------------------------------------------------------------
+    # SAVEEARTH (game mode)
+    # ------------------------------------------------------------------
+    {
+        "key": "learn_resize",
+        "label": "Resizing",
+        "icon": ft.Icons.PHOTO_SIZE_SELECT_LARGE,
+        "selected_icon": ft.Icons.PHOTO_SIZE_SELECT_LARGE,
+        "group": DISCOVER,
+        "full_page": True,
+    },
+    {
+        "key": "learn_noise",
+        "label": "Noise",
+        "icon": ft.Icons.GRAIN,
+        "selected_icon": ft.Icons.GRAIN,
+        "group": DISCOVER,
+        "full_page": True,
+    },
+    {
+        "key": "learn_restore",
+        "label": "Restoration",
+        "icon": ft.Icons.AUTO_FIX_HIGH,
+        "selected_icon": ft.Icons.AUTO_FIX_HIGH,
+        "group": DISCOVER,
+        "full_page": True,
+    },
+
+    {
+        "key": "save_earth",
+        "label": "SaveEarth",
+        "icon": ft.Icons.PUBLIC,
+        "selected_icon": ft.Icons.PUBLIC,
+        "group": None,
+        "full_page": True,
+    },
 ]
 
 
@@ -161,6 +226,13 @@ ROUTES = {item["key"]: index for index, item in enumerate(NAV_ITEMS)}
 def route_index(key, default=0):
     """Resolve a route key to its navigation index."""
     return ROUTES.get(key, default)
+
+
+def is_full_page(index):
+    """True for pages that draw their own stage (Discover, SaveEarth)."""
+    if 0 <= index < len(NAV_ITEMS):
+        return bool(NAV_ITEMS[index].get("full_page", False))
+    return False
 
 
 def group_keys(group):
@@ -194,13 +266,13 @@ class Sidebar:
         # Both domain groups start closed. Home is the only visible
         # destination, which keeps the two-domain story readable instead
         # of dropping 13 links on the user at once.
-        self.group_open = {SPATIAL: False, FREQUENCY: False}
+        self.group_open = {group: False for group in GROUPS}
 
         self.items = []
         self.labels = []
         self.group_headers = {}
         self.group_chevrons = {}
-        self.group_items = {SPATIAL: [], FREQUENCY: []}
+        self.group_items = {group: [] for group in GROUPS}
 
         self.control = self._build()
 
@@ -374,7 +446,7 @@ class Sidebar:
             padding=ft.Padding.symmetric(horizontal=10),
             border_radius=8,
             ink=True,
-            tooltip=f"{meta['title']} ({count} features)",
+            tooltip=f"{meta['title']} ({count} {meta.get('unit', 'features')})",
             on_click=lambda e, g=group: self.toggle_group(g),
             on_hover=self._hover_simple,
             data={"rest_bg": "#00000000"},
@@ -492,7 +564,7 @@ class Sidebar:
 
             chevron = self.group_chevrons.get(group)
             if chevron is not None:
-                chevron.name = (
+                chevron.icon = (
                     ft.Icons.EXPAND_MORE
                     if self.group_open[group]
                     else ft.Icons.CHEVRON_RIGHT
@@ -734,7 +806,7 @@ class Sidebar:
                 else "#00000000",
             )
 
-            data["icon_control"].name = (
+            data["icon_control"].icon = (
                 data["selected_icon"]
                 if selected
                 else data["icon"]

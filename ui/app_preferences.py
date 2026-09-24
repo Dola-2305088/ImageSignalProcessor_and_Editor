@@ -28,18 +28,22 @@ PLAN_OPTIONS = ("Student Plan", "Standard Plan", "Pro Plan")
 # ============================================================
 #
 # Values map to sidebar route keys (see ui/components/sidebar.py).
-# Kept deliberately short: three entry points, not thirteen.
+# Kept deliberately short: one entry point per area, not one per page.
 
 WORKSPACE_OPTIONS = (
     "Home",
     "Spatial domain",
     "Frequency domain",
+    "Discover",
+    "SaveEarth",
 )
 
 WORKSPACE_ROUTES = {
     "Home": "home",
     "Spatial domain": "blur_sharpen",
     "Frequency domain": "frequency",
+    "Discover": "learn_convolution",
+    "SaveEarth": "save_earth",
 }
 
 # Profiles saved by the previous build used one workspace per feature.
