@@ -35,7 +35,7 @@ from ui.learning.scene_engine import Timeline
 from ui.theme import AppAnimations, AppColors, AppLayout
 
 
-PLOT_W, PLOT_H = 560, 170
+PLOT_W, PLOT_H = 620, 170
 IMAGE_PANEL = 188
 SPECTRUM_PANEL = 188
 
@@ -124,7 +124,7 @@ class LearnSpectrumView:
         )
 
         stage = ft.Container(
-            padding=ft.Padding.symmetric(horizontal=28, vertical=22),
+            padding=ft.Padding.symmetric(horizontal=20, vertical=18),
             border_radius=AppLayout.CARD_RADIUS,
             border=ft.Border.all(1, AppColors.BORDER),
             gradient=ft.RadialGradient(
@@ -134,7 +134,7 @@ class LearnSpectrumView:
             ),
             content=ft.Column(
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                spacing=14,
+                spacing=18,
                 controls=[
                     self._caption_block(),
                     self._image_row(),
@@ -155,7 +155,11 @@ class LearnSpectrumView:
             ],
         )
 
-        return ft.Column(spacing=16, controls=[header, stage, controls])
+        return ft.Column(
+            spacing=16,
+            horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+            controls=[header, stage, controls],
+        )
 
     def _chapter_pill(self, index):
         number = ft.Container(
@@ -191,8 +195,8 @@ class LearnSpectrumView:
                                     text_align=ft.TextAlign.CENTER,
                                     max_lines=2)
         self.caption = ft.Container(
-            width=760,
-            height=72,
+            width=820,
+            height=66,
             alignment=ft.Alignment.TOP_CENTER,
             opacity=1.0,
             animate_opacity=ft.Animation(220, ft.AnimationCurve.EASE_OUT),
@@ -250,19 +254,14 @@ class LearnSpectrumView:
                                           palette.KERNEL_FRAME, self.spectrum_note)
         self._show(self.spectrum_card, False)
 
-        self.image_row_control = ft.Container(
-            width=float("inf"),
-            alignment=ft.Alignment.CENTER,
-            content=ft.Row(
-                alignment=ft.MainAxisAlignment.CENTER,
-                vertical_alignment=ft.CrossAxisAlignment.START,
-                wrap=True,
-                spacing=18,
-                run_spacing=18,
-                controls=[self.scene_card, self.spectrum_card, self.rebuilt_card],
-            ),
+        return ft.Row(
+            alignment=ft.MainAxisAlignment.CENTER,
+            vertical_alignment=ft.CrossAxisAlignment.START,
+            wrap=True,
+            spacing=16,
+            run_spacing=16,
+            controls=[self.scene_card, self.spectrum_card, self.rebuilt_card],
         )
-        return self.image_row_control
 
     @staticmethod
     def _show(control, visible):
@@ -320,9 +319,9 @@ class LearnSpectrumView:
             spacing=16,
             alignment=ft.MainAxisAlignment.CENTER,
             controls=[
-                self._legend("original row signal", SIGNAL_COLOUR),
-                self._legend("reconstruction so far", SUM_COLOUR),
-                self._legend("wave being added", WAVE_COLOUR),
+                self._legend("the real row", SIGNAL_COLOUR),
+                self._legend("waves added so far", SUM_COLOUR),
+                self._legend("the wave being added", WAVE_COLOUR),
             ],
         )
         self.plot_note = ft.Text("", **_mono(11, SUM_COLOUR))
@@ -334,37 +333,10 @@ class LearnSpectrumView:
             border_radius=14,
             bgcolor=AppColors.SURFACE_DARK,
             border=ft.Border.all(1, AppColors.BORDER_SOFT),
-            width=720,
             content=ft.Column(
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                spacing=9,
-                controls=[
-                    ft.Text("SELECTED IMAGE ROW → 1D SIGNAL", size=10,
-                            weight=ft.FontWeight.BOLD, color=SUM_COLOUR),
-                    ft.Text("Each point is one pixel: left/right = position, height = brightness.",
-                            size=10, color=AppColors.TEXT_SECONDARY,
-                            text_align=ft.TextAlign.CENTER),
-                    ft.Row(
-                        alignment=ft.MainAxisAlignment.CENTER,
-                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                        spacing=10,
-                        controls=[
-                            ft.Column(
-                                width=62,
-                                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                                spacing=52,
-                                controls=[
-                                    ft.Text("BRIGHT", size=8, weight=ft.FontWeight.BOLD, color=WAVE_COLOUR),
-                                    ft.Text("DARK", size=8, weight=ft.FontWeight.BOLD, color=AppColors.MUTED),
-                                ],
-                            ),
-                            self.plot,
-                        ],
-                    ),
-                    ft.Text("← pixel position →", size=9, color=AppColors.MUTED),
-                    self.plot_legend,
-                    self.plot_note,
-                ],
+                spacing=8,
+                controls=[self.plot, self.plot_legend, self.plot_note],
             ),
         )
         self._draw_plot(show_sum=False, show_wave=False)
@@ -730,7 +702,7 @@ class LearnSpectrumView:
                 ft.Slider(min=0, max=self.trace.size // 2, divisions=self.trace.size // 2,
                           value=0, active_color=SUM_COLOUR,
                           on_change=lambda e: self.set_harmonics(int(e.control.value))),
-                ft.Text("Try it: move right to add more waves. The reconstruction should gradually match the original row.",
+                ft.Text("Drag to the right and watch the blue curve become the row.",
                         size=10, color=AppColors.MUTED),
             ],
         )
@@ -809,8 +781,8 @@ class LearnSpectrumView:
     def _resting_caption(self, chapter):
         step = f"CHAPTER {chapter + 1}  ·  {CHAPTERS[chapter].upper()}"
         if chapter == 0:
-            return step, "Press Play — first we turn one horizontal row of pixels into a simple signal."
-        return step, "Press Play to continue, or explore the controls yourself."
+            return step, "Press Play. We will take this picture apart into waves."
+        return step, "Press Play to continue, or move the sliders yourself."
 
     def _move_marker(self):
         self.row_marker.top = (self.row / self.trace.size) * IMAGE_PANEL
@@ -1017,8 +989,8 @@ class LearnSpectrumView:
                              "it apart — but not into pixels this time.",
                         self._step(0), hold=4.0)
 
-        await self._say(gen, "Start with something simpler than a whole picture: one horizontal row. "
-                             "The yellow line shows exactly which pixels we selected.", hold=0.4)
+        await self._say(gen, "Start with something simpler than a whole picture: "
+                             "one single row of it.", hold=0.4)
 
         self.row = self.trace.busiest_row()
         self._move_marker()
@@ -1032,9 +1004,9 @@ class LearnSpectrumView:
         tl.push(gen, self.control)
         await tl.wait(gen, 1.8)
 
-        await self._say(gen, f"Now read row {self.row} from left to right. Every pixel becomes one point: "
-                             f"higher means brighter, lower means darker. So this graph is simply "
-                             f"{self.trace.size} pixel brightness values.", hold=4.8)
+        await self._say(gen, f"Row {self.row}, drawn as a graph: dark background, "
+                             f"the bright ring, the planet's shading. Just a wiggly "
+                             f"line of {self.trace.size} numbers.", hold=4.8)
 
         await self._say(gen, "Here is the claim: that wiggle is nothing more than "
                              "smooth waves added together. Let's prove it.", hold=4.2)

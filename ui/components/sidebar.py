@@ -762,33 +762,32 @@ class Sidebar:
     # =========================================================
 
     def _profile(self):
+        """The account row at the foot of the sidebar.
+
+        Name only: the plan was noise in a navigation rail, and it is
+        still editable in Settings. Dropping it also lets the avatar,
+        the name and the chevron share one centre line.
+        """
         self.profile_name_text = ft.Text(
             getattr(self.profile, "name", None) or "User",
-            size=10,
+            size=11,
+            weight=ft.FontWeight.W_600,
             color=AppColors.TEXT,
-        )
-
-        self.profile_plan_text = ft.Text(
-            getattr(self.profile, "plan", None) or "Student Plan",
-            size=8,
-            color=AppColors.MUTED,
+            no_wrap=True,
+            overflow=ft.TextOverflow.ELLIPSIS,
         )
 
         self.profile_avatar_text = ft.Text(
             getattr(self.profile, "initials", None) or "U",
-            size=13,
+            size=12,
+            weight=ft.FontWeight.BOLD,
             color=AppColors.WHITE,
         )
 
         self.profile_text = ft.Container(
             width=LABEL_WIDTH,
-            content=ft.Column(
-                spacing=0,
-                controls=[
-                    self.profile_name_text,
-                    self.profile_plan_text,
-                ],
-            ),
+            alignment=ft.Alignment.CENTER_LEFT,
+            content=self.profile_name_text,
             animate=ft.Animation(
                 AppAnimations.NORMAL,
                 ft.AnimationCurve.EASE_OUT,
@@ -797,36 +796,58 @@ class Sidebar:
 
         self.labels.append(self.profile_text)
 
+        avatar = ft.Container(
+            width=34,
+            height=34,
+            border_radius=99,
+            alignment=ft.Alignment.CENTER,
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment.TOP_LEFT,
+                end=ft.Alignment.BOTTOM_RIGHT,
+                colors=["#8B5CF6", "#3158B6"],
+            ),
+            border=ft.Border.all(1, "#A9B7FF33"),
+            shadow=ft.BoxShadow(
+                blur_radius=14,
+                spread_radius=-4,
+                color="#667B4AE2",
+            ),
+            content=self.profile_avatar_text,
+        )
+
         return ft.Container(
-            height=64,
+            height=56,
             margin=ft.Margin.only(top=10),
-            padding=ft.Padding.symmetric(horizontal=10),
-            border_radius=12,
-            bgcolor="#0A1422",
+            padding=ft.Padding.only(left=9, right=8),
+            border_radius=14,
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment.TOP_LEFT,
+                end=ft.Alignment.BOTTOM_RIGHT,
+                colors=["#101A2B", "#0A1220"],
+            ),
             border=ft.Border.all(1, "#223047"),
             ink=True,
             tooltip="Edit profile",
             on_click=self._edit_profile,
             on_hover=self._hover_simple,
-            data={"rest_bg": "#0A1422"},
+            data={"rest_bg": "#00000000"},
             content=ft.Row(
-                spacing=10,
+                spacing=11,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 controls=[
-                    ft.Container(
-                        width=35,
-                        height=35,
-                        border_radius=99,
-                        alignment=ft.Alignment.CENTER,
-                        gradient=ft.LinearGradient(
-                            colors=["#7B4AE2", "#3158B6"],
-                        ),
-                        content=self.profile_avatar_text,
-                    ),
+                    avatar,
                     self.profile_text,
-                    ft.Icon(
-                        ft.Icons.UNFOLD_MORE,
-                        size=16,
-                        color=AppColors.TEXT_SECONDARY,
+                    ft.Container(
+                        width=24,
+                        height=24,
+                        alignment=ft.Alignment.CENTER,
+                        border_radius=8,
+                        bgcolor="#14203358",
+                        content=ft.Icon(
+                            ft.Icons.TUNE_ROUNDED,
+                            size=14,
+                            color=AppColors.TEXT_SECONDARY,
+                        ),
                     ),
                 ],
             ),
@@ -874,14 +895,13 @@ class Sidebar:
     def set_profile(self, profile, refresh=True):
         self.profile = profile
 
+        # The plan is intentionally not shown here; Settings owns it.
         self.profile_name_text.value = profile.name
-        self.profile_plan_text.value = profile.plan
         self.profile_avatar_text.value = profile.initials
 
         if refresh:
             try:
                 self.profile_name_text.update()
-                self.profile_plan_text.update()
                 self.profile_avatar_text.update()
             except Exception:
                 pass

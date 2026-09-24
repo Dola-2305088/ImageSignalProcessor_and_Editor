@@ -149,8 +149,12 @@ class LessonShell:
             for panel in self.side_panels()
         ]
 
+        # Stretch, so the header, the stage and the panels all span the
+        # content area. Each card centres its own contents, which only
+        # looks centred if the card itself is full width.
         self.control = ft.Column(
             spacing=14,
+            horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
             controls=[header, progress_track, stage,
                       ft.ResponsiveRow(spacing=14, run_spacing=14, controls=panels)],
         )

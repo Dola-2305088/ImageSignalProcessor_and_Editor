@@ -299,7 +299,11 @@ class LearnConvolutionView:
             ],
         )
 
-        return ft.Column(spacing=16, controls=[header, stage_card, controls_card])
+        return ft.Column(
+            spacing=16,
+            horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+            controls=[header, stage_card, controls_card],
+        )
 
     def _chapter_pill(self, index):
         number = ft.Container(
