@@ -9,7 +9,7 @@ from ui.theme import AppAnimations, AppColors
 from ui.app_preferences import WORKSPACE_OPTIONS
 from ui.components.sidebar import route_index
 
-GALAXY_IMAGE = "images/Nasa2.jpg"
+GALAXY_IMAGE = "images/test.png"
 AETHERIS_ORBIT_LOGO = "images/logo.png"
 
 # Permanent demo projects. These three cards always stay at the top of
