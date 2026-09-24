@@ -13,8 +13,10 @@ def clip_image(image):
     Clip image values to [0, 255] and convert to uint8.
     """
 
+    # Round before casting: astype() truncates, which would darken
+    # every processed image by up to one grey level.
     return np.clip(
-        image,
+        np.round(image),
         0,
         255
     ).astype(np.uint8)

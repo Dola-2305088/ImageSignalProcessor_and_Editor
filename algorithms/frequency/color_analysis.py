@@ -136,7 +136,7 @@ def rgb_to_ycbcr(image):
     )
 
     y = np.clip(
-        y,
+        np.round(y),
         0,
         255
     ).astype(
@@ -144,7 +144,7 @@ def rgb_to_ycbcr(image):
     )
 
     cb = np.clip(
-        cb,
+        np.round(cb),
         0,
         255
     ).astype(
@@ -152,7 +152,7 @@ def rgb_to_ycbcr(image):
     )
 
     cr = np.clip(
-        cr,
+        np.round(cr),
         0,
         255
     ).astype(

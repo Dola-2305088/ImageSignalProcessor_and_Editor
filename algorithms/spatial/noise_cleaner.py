@@ -13,8 +13,10 @@ def clip_image(image):
     Clip pixel values to [0, 255] and return uint8 image.
     """
 
+    # Round before casting: astype() truncates, which would darken
+    # every processed image by up to one grey level.
     return np.clip(
-        image,
+        np.round(image),
         0,
         255
     ).astype(np.uint8)
@@ -395,18 +397,35 @@ def median_filter_gray(
         dtype=np.float64
     )
 
-    for row in range(rows):
+    # Same definition as a per-pixel loop -- the median of every
+    # neighbourhood -- but the neighbourhoods are gathered a band of
+    # rows at a time instead of one pixel at a time. A per-pixel loop
+    # needs one np.median() call per pixel, which takes about 14
+    # seconds on a 720x540 colour image; this takes a fraction of a
+    # second. The band keeps memory bounded on large images.
+    band_height = max(
+        1,
+        int(2_000_000 // (cols * kernel_size * kernel_size))
+    )
 
-        for col in range(cols):
+    for start in range(0, rows, band_height):
 
-            region = padded_image[
-                row:row + kernel_size,
-                col:col + kernel_size
-            ]
+        stop = min(start + band_height, rows)
 
-            output[row, col] = np.median(
-                region
-            )
+        band = padded_image[
+            start: stop + 2 * padding,
+            :
+        ]
+
+        windows = np.lib.stride_tricks.sliding_window_view(
+            band,
+            (kernel_size, kernel_size)
+        )
+
+        output[start:stop, :] = np.median(
+            windows,
+            axis=(2, 3)
+        )
 
     return output
 

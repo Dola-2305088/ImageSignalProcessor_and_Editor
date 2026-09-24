@@ -23,6 +23,13 @@ SOBEL_Y = np.array(
 )
 
 
+# Edge images are scaled by a high percentile instead of the single
+# largest value. One very strong edge (a specular highlight, a dark
+# frame border) would otherwise set the gain for the whole picture and
+# push every real edge down into the near-black range.
+EDGE_PERCENTILE = 99.5
+
+
 def to_grayscale(image):
     """
     Convert RGB image to grayscale.
@@ -50,85 +57,145 @@ def to_grayscale(image):
     raise ValueError("Unsupported image format.")
 
 
-def normalize_edge_image(image):
+def sobel_responses(image):
+    """
+    Run both Sobel kernels once and return the raw responses.
+
+    Returns
+    -------
+    gx : ndarray
+        Response to SOBEL_X (signed; strong on vertical edges).
+
+    gy : ndarray
+        Response to SOBEL_Y (signed; strong on horizontal edges).
+
+    magnitude : ndarray
+        sqrt(gx^2 + gy^2).
+    """
+
+    gray = to_grayscale(image)
+
+    gx = convolve2d(gray, SOBEL_X)
+    gy = convolve2d(gray, SOBEL_Y)
+
+    magnitude = np.sqrt(gx ** 2 + gy ** 2)
+
+    return gx, gy, magnitude
+
+
+def edge_scale(magnitude):
+    """
+    Choose one display gain from the magnitude image.
+
+    The same gain is used for the horizontal, vertical and combined
+    views, so the three are directly comparable: a weak horizontal
+    edge stays weak next to a strong combined edge, instead of every
+    view being stretched to its own maximum.
+    """
+
+    magnitude = np.abs(np.asarray(magnitude, dtype=np.float64))
+
+    scale = float(np.percentile(magnitude, EDGE_PERCENTILE))
+
+    if scale <= 1e-9:
+        scale = float(magnitude.max())
+
+    if scale <= 1e-9:
+        return 1.0
+
+    return scale
+
+
+def scale_edges(response, scale):
+    """
+    Scale an edge response to a 0-255 image by its magnitude.
+    """
+
+    response = np.abs(np.asarray(response, dtype=np.float64))
+
+    scaled = (response / scale) * 255.0
+
+    return np.clip(np.round(scaled), 0, 255).astype(np.uint8)
+
+
+def signed_edges(response, scale):
+    """
+    Show a signed response with mid-grey as zero.
+
+    Dark means brightness falling, bright means brightness rising.
+    Useful for the horizontal and vertical views, where the sign is
+    the direction of the change; the absolute value throws it away.
+    """
+
+    response = np.asarray(response, dtype=np.float64)
+
+    scaled = 128.0 + (response / scale) * 127.0
+
+    return np.clip(np.round(scaled), 0, 255).astype(np.uint8)
+
+
+def normalize_edge_image(image, scale=None):
     """
     Normalize an edge response to 0-255.
+
+    Kept for backwards compatibility. Pass ``scale`` (from
+    ``edge_scale``) to keep several views on the same gain.
     """
 
-    image = np.abs(image)
+    image = np.abs(np.asarray(image, dtype=np.float64))
 
-    maximum = np.max(image)
+    if scale is None:
+        scale = edge_scale(image)
 
-    if maximum == 0:
-        return np.zeros_like(
-            image,
-            dtype=np.uint8
-        )
-
-    normalized = (
-        image / maximum
-    ) * 255
-
-    return normalized.astype(np.uint8)
+    return scale_edges(image, scale)
 
 
-def horizontal_edges(image):
+def horizontal_edges(image, scale=None, signed=False):
     """
-    Detect horizontal intensity changes.
+    Detect horizontal intensity changes (SOBEL_Y).
     """
 
-    gray = to_grayscale(image)
+    gx, gy, magnitude = sobel_responses(image)
 
-    result = convolve2d(
-        gray,
-        SOBEL_Y
-    )
+    if scale is None:
+        scale = edge_scale(magnitude)
 
-    return normalize_edge_image(result)
+    if signed:
+        return signed_edges(gy, scale)
+
+    return scale_edges(gy, scale)
 
 
-def vertical_edges(image):
+def vertical_edges(image, scale=None, signed=False):
     """
-    Detect vertical intensity changes.
+    Detect vertical intensity changes (SOBEL_X).
     """
 
-    gray = to_grayscale(image)
+    gx, gy, magnitude = sobel_responses(image)
 
-    result = convolve2d(
-        gray,
-        SOBEL_X
-    )
+    if scale is None:
+        scale = edge_scale(magnitude)
 
-    return normalize_edge_image(result)
+    if signed:
+        return signed_edges(gx, scale)
+
+    return scale_edges(gx, scale)
 
 
-def combined_edges(image):
+def combined_edges(image, scale=None):
     """
     Compute Sobel edge magnitude.
     """
 
-    gray = to_grayscale(image)
+    gx, gy, magnitude = sobel_responses(image)
 
-    gx = convolve2d(
-        gray,
-        SOBEL_X
-    )
+    if scale is None:
+        scale = edge_scale(magnitude)
 
-    gy = convolve2d(
-        gray,
-        SOBEL_Y
-    )
-
-    magnitude = np.sqrt(
-        gx ** 2 + gy ** 2
-    )
-
-    return normalize_edge_image(
-        magnitude
-    )
+    return scale_edges(magnitude, scale)
 
 
-def detect_edges(image, mode="combined"):
+def detect_edges(image, mode="combined", signed=False):
     """
     General edge-detection interface.
 
@@ -136,19 +203,48 @@ def detect_edges(image, mode="combined"):
         horizontal
         vertical
         combined
+
+    signed:
+        Only affects horizontal and vertical. When True the result is
+        centred on mid-grey, so the direction of the brightness
+        change stays visible.
     """
 
     mode = mode.lower()
 
+    gx, gy, magnitude = sobel_responses(image)
+    scale = edge_scale(magnitude)
+
     if mode == "horizontal":
-        return horizontal_edges(image)
+        return signed_edges(gy, scale) if signed else scale_edges(gy, scale)
 
     if mode == "vertical":
-        return vertical_edges(image)
+        return signed_edges(gx, scale) if signed else scale_edges(gx, scale)
 
     if mode == "combined":
-        return combined_edges(image)
+        return scale_edges(magnitude, scale)
 
     raise ValueError(
         "Mode must be 'horizontal', 'vertical', or 'combined'."
     )
+
+
+def detect_all_edges(image, signed=False):
+    """
+    All three views computed once, sharing a single display gain.
+
+    Convolution runs twice in total instead of six times, which is
+    exactly what the comparison view needs.
+    """
+
+    gx, gy, magnitude = sobel_responses(image)
+    scale = edge_scale(magnitude)
+
+    return {
+        "horizontal": signed_edges(gy, scale) if signed else scale_edges(gy, scale),
+        "vertical": signed_edges(gx, scale) if signed else scale_edges(gx, scale),
+        "combined": scale_edges(magnitude, scale),
+        "scale": scale,
+        "max_magnitude": float(magnitude.max()),
+        "mean_magnitude": float(magnitude.mean()),
+    }

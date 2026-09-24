@@ -52,7 +52,9 @@ def clip_image(image):
     Ensure pixel values remain between 0 and 255.
     """
 
-    image = np.clip(image, 0, 255)
+    # Round before casting: astype() truncates, which would darken
+    # every processed image by up to one grey level.
+    image = np.clip(np.round(image), 0, 255)
 
     return image.astype(np.uint8)
 

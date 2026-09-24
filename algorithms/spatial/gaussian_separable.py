@@ -13,8 +13,10 @@ def clip_image(image):
     Clip image values to [0, 255] and convert to uint8.
     """
 
+    # Round before casting: astype() truncates, which would darken
+    # every processed image by up to one grey level.
     return np.clip(
-        image,
+        np.round(image),
         0,
         255
     ).astype(np.uint8)
@@ -183,19 +185,21 @@ def convolve_horizontal_gray(image, kernel_1d):
     # consistent with convolution.
     flipped_kernel = kernel_1d[::-1]
 
-    for row in range(rows):
+    # One shifted copy of the row band per kernel tap, exactly as the
+    # 2D convolution does. Both passes use the same style, so the
+    # timing comparison below measures the separability win itself
+    # rather than two different coding styles.
+    for tap in range(kernel_size):
 
-        for col in range(cols):
+        weight = flipped_kernel[tap]
 
-            region = padded[
-                row,
-                col:col + kernel_size
-            ]
+        if weight == 0.0:
+            continue
 
-            output[row, col] = np.dot(
-                region,
-                flipped_kernel
-            )
+        output += weight * padded[
+            :,
+            tap: tap + cols
+        ]
 
     return output
 
@@ -247,19 +251,17 @@ def convolve_vertical_gray(image, kernel_1d):
 
     flipped_kernel = kernel_1d[::-1]
 
-    for row in range(rows):
+    for tap in range(kernel_size):
 
-        for col in range(cols):
+        weight = flipped_kernel[tap]
 
-            region = padded[
-                row:row + kernel_size,
-                col
-            ]
+        if weight == 0.0:
+            continue
 
-            output[row, col] = np.dot(
-                region,
-                flipped_kernel
-            )
+        output += weight * padded[
+            tap: tap + rows,
+            :
+        ]
 
     return output
 
