@@ -68,6 +68,146 @@ def spectrum_picture(spectrum, gamma=1.0):
     return np.clip(np.round(scaled * 255), 0, 255).astype(np.uint8)
 
 
+def peak_info(image):
+    """Where the brightest dot of a pattern's spectrum actually is.
+
+    Returns its distance from the centre in "steps" (one step is one
+    cycle across the whole picture) and its angle, so a lesson can put
+    a measured number on screen instead of asking the reader to judge
+    a distance by eye.
+
+    For a stripe pattern the distance is exactly
+    image width / stripe spacing, which is the relationship worth
+    teaching.
+    """
+    image = np.asarray(image, dtype=np.float64)
+    size = image.shape[0]
+
+    shifted = np.fft.fftshift(np.fft.fft2(image))
+    magnitude = np.abs(shifted)
+
+    centre = size // 2
+    # Ignore the middle: that dot is just the average brightness.
+    magnitude[centre - 1: centre + 2, centre - 1: centre + 2] = 0.0
+
+    row, col = np.unravel_index(int(np.argmax(magnitude)), magnitude.shape)
+    dy, dx = row - centre, col - centre
+    radius = float(np.hypot(dy, dx))
+
+    return {
+        "row": int(row),
+        "col": int(col),
+        "centre": centre,
+        "radius": radius,
+        "angle": float(np.degrees(np.arctan2(dy, dx)) % 180.0),
+        "spacing": (size / radius) if radius else float("inf"),
+    }
+
+
+def annotate_spectrum(image):
+    """A pattern's spectrum with its own measurement drawn on it.
+
+    A crosshair marks the centre, a ring marks each of the two bright
+    dots, and a line joins the centre to one of them, so "distance from
+    the centre" is something to look at rather than to judge.
+
+    Returns the RGB picture and the peak_info that produced it.
+    """
+    spectrum = spectrum_picture(np.fft.fft2(np.asarray(image, dtype=np.float64)))
+    info = peak_info(image)
+
+    canvas = np.dstack([spectrum] * 3).astype(np.float64)
+    size = canvas.shape[0]
+    centre = info["centre"]
+
+    crosshair = np.array([120, 140, 190], dtype=np.float64)
+    canvas[centre, :] = 0.45 * canvas[centre, :] + 0.55 * crosshair
+    canvas[:, centre] = 0.45 * canvas[:, centre] + 0.55 * crosshair
+
+    line = np.array([251, 191, 36], dtype=np.float64)
+    steps = max(2, int(info["radius"] * 3))
+    for step in range(steps + 1):
+        fraction = step / steps
+        y = int(round(centre + (info["row"] - centre) * fraction))
+        x = int(round(centre + (info["col"] - centre) * fraction))
+        if 0 <= y < size and 0 <= x < size:
+            canvas[y, x] = 0.25 * canvas[y, x] + 0.75 * line
+
+    ring = np.array([34, 211, 238], dtype=np.float64)
+    for row, col in (
+        (info["row"], info["col"]),
+        (2 * centre - info["row"], 2 * centre - info["col"]),
+    ):
+        for angle in np.linspace(0, 2 * np.pi, 96):
+            y = int(round(row + 3.4 * np.sin(angle)))
+            x = int(round(col + 3.4 * np.cos(angle)))
+            if 0 <= y < size and 0 <= x < size:
+                canvas[y, x] = ring
+
+    return np.clip(np.round(canvas), 0, 255).astype(np.uint8), info
+
+
+def ruler_overlay(image, spacing, angle=0.0):
+    """Draw a measuring bracket across one repeat of a pattern.
+
+    Two ticks one repeat apart, joined by a bar. It turns "the threads
+    are 8 px apart" from a claim into something measured on the picture
+    itself.
+    """
+    image = np.asarray(image)
+    canvas = (np.dstack([image] * 3) if image.ndim == 2
+              else image.copy()).astype(np.float64)
+
+    size = canvas.shape[0]
+    mark = np.array([251, 191, 36], dtype=np.float64)
+
+    radians = np.deg2rad(angle)
+    start_y, start_x = int(size * 0.12), int(size * 0.10)
+
+    end_y = int(round(start_y + spacing * np.sin(radians)))
+    end_x = int(round(start_x + spacing * np.cos(radians)))
+
+    # the bar
+    for step in range(int(spacing) * 3 + 1):
+        fraction = step / max(1, int(spacing) * 3)
+        y = int(round(start_y + (end_y - start_y) * fraction))
+        x = int(round(start_x + (end_x - start_x) * fraction))
+        if 0 <= y < size and 0 <= x < size:
+            canvas[y, x] = mark
+
+    # a tick at each end, across the bar
+    for y0, x0 in ((start_y, start_x), (end_y, end_x)):
+        for offset in range(-4, 5):
+            y = int(round(y0 - offset * np.sin(radians + np.pi / 2)))
+            x = int(round(x0 - offset * np.cos(radians + np.pi / 2)))
+            if 0 <= y < size and 0 <= x < size:
+                canvas[y, x] = mark
+
+    return np.clip(np.round(canvas), 0, 255).astype(np.uint8)
+
+
+def wave_image(size=LESSON_SIZE, spacing=16, angle=0.0, amplitude=110):
+    """One wave drawn as a picture: bright and dark bands.
+
+    spacing is the distance between two bright bands in pixels, which
+    is the thing a beginner can measure with a ruler on screen. angle
+    turns the bands.
+    """
+    y, x = np.mgrid[0:size, 0:size]
+    radians = np.deg2rad(angle)
+    projected = x * np.cos(radians) + y * np.sin(radians)
+    wave = np.sin(2 * np.pi * projected / max(2.0, spacing))
+    return np.clip(np.round(128 + amplitude * wave), 0, 255).astype(np.uint8)
+
+
+def add_waves(*images):
+    """Add wave pictures together, keeping mid-grey as zero."""
+    total = np.zeros(images[0].shape, dtype=np.float64)
+    for image in images:
+        total += np.asarray(image, dtype=np.float64) - 128.0
+    return np.clip(np.round(128 + total), 0, 255).astype(np.uint8)
+
+
 class SpectrumTrace:
     """Everything the foundation lesson animates, for one fixed image."""
 
