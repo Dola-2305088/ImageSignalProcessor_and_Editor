@@ -1,23 +1,21 @@
-"""Discover · Lesson 5 — An image is a sum of waves.
+"""Discover · Lesson 5 — Waves and spectra.
 
-The foundation for every frequency feature. Compression, filtering,
-hybrids and texture all become "edit the list of ingredients" once a
-viewer believes this one claim, so this lesson earns it before any of
-them are mentioned.
+Rebuilt to start from something a first-timer can see rather than from
+an equation. The old version opened on a line graph of one row of
+pixels, which is the most abstract possible entry point; this one opens
+on a picture of stripes and says "that is a wave".
 
-The argument runs in one dimension first, where it is easy to accept
-that a wiggly line is a sum of sine waves, and only then moves to 2D:
+The argument, in five steps:
 
-    1  One line of pixels      a row of the planet, drawn as a signal
-    2  Add the waves back      the Fourier build-up, harmonic by harmonic
-    3  Waves have direction    single 2D frequencies, and where they sit
-    4  Reading a spectrum      gratings whose spectra you can predict
-    5  Rebuild the picture     the planet from its strongest coefficients
+    1  a wave is a picture of stripes, and it makes two dots
+    2  add two wave pictures together and the dots add too
+    3  a photograph is thousands of them stacked
+    4  the spectrum is the shopping list: where a dot sits says
+       how fine the stripes are and which way they run
+    5  every frequency feature is a way of editing that list
 
-All numbers come from SpectrumTrace, whose verify() checks the
-project's manual 2D DFT against NumPy's FFT before any of this is
-drawn. The lesson uses the FFT for anything interactive: the manual
-transform is a matrix multiply and far too slow for a slider.
+Numbers come from SpectrumTrace, whose verify() checks the project's
+manual 2D DFT against NumPy's FFT before any of this is drawn.
 """
 
 import flet as ft
@@ -25,276 +23,98 @@ import flet.canvas as fc
 import numpy as np
 
 from algorithms.learning.spectrum_trace import (
-    BASIS_EXAMPLES,
     SpectrumTrace,
-    basis_image,
+    add_waves,
+    annotate_spectrum,
+    peak_info,
     spectrum_picture,
+    wave_image,
 )
 from ui.learning import palette
-from ui.learning.scene_engine import Timeline
-from ui.theme import AppAnimations, AppColors, AppLayout
+from ui.learning.lesson_shell import LessonShell, mono
+from ui.theme import AppColors
 
 
-PLOT_W, PLOT_H = 620, 170
-IMAGE_PANEL = 188
-SPECTRUM_PANEL = 188
+PICTURE = 188
+PLOT_W, PLOT_H = 620, 96
 
-SIGNAL_COLOUR = "#8FA6C8"
-SUM_COLOUR = palette.INPUT
-WAVE_COLOUR = palette.KERNEL
-SPECTRUM_ACCENT = palette.PRODUCT
+WAVE_A = palette.INPUT
+WAVE_B = palette.KERNEL
+SUM_ACCENT = palette.PRODUCT
+SPECTRUM_ACCENT = palette.KERNEL_FRAME
 
-CHAPTERS = [
-    "One line of pixels",
-    "Add the waves back",
-    "Waves have direction",
-    "Reading a spectrum",
-    "Rebuild the picture",
-]
+# How many waves the rebuild chapter steps through.
+REBUILD_STEPS = (1, 4, 20, 100, 600, 3000, 9216)
 
-COEFFICIENT_STEPS = (1, 5, 20, 60, 150, 400, 1000, 2500, 9216)
+# Band spacings that divide the 96 px picture exactly, so the lesson's
+# "steps x spacing = picture width" line is always literally true and
+# never has to hedge with an approximation.
+SPACING_STEPS = (4, 6, 8, 12, 16, 24, 32, 48)
 
 
-def _mono(size, color):
-    return dict(size=size, color=color, weight=ft.FontWeight.BOLD,
-                font_family="Consolas")
+class LearnSpectrumView(LessonShell):
+    CHAPTERS = [
+        "A wave is stripes",
+        "Two waves add up",
+        "A photo is many waves",
+        "Reading the spectrum",
+        "What it is all for",
+    ]
+    ACCENT = palette.INPUT
+    BADGE = "DISCOVER  •  LESSON 5"
+    TITLE = "Waves and spectra"
+    SUBTITLE = "Start with one stripe pattern. Finish with a photograph."
 
-
-class LearnSpectrumView:
     def __init__(self, page):
-        self.page = page
+        super().__init__(page)
 
         self.trace = SpectrumTrace()
-        self.row = self.trace.busiest_row()
-        self.harmonics = 0
-        self.coefficients = 60
-        self.basis_index = 1
-        self.pattern_index = 0
-        self.chapter = 0
+        self.size = self.trace.size
 
-        self.timeline = Timeline(page, on_state_change=self._on_running_changed)
+        self.spacing_a = 24
+        self.angle_a = 0
+        self.spacing_b = 8
+        self.angle_b = 90
+        self.kept = 100
 
-        self.control = self._build_page()
-        self._apply_chapter_state(0, first_build=True)
+        self.build()
+        self.set_chapter_state(0, first_build=True)
 
     # =========================================================
-    # PAGE
+    # STAGE
     # =========================================================
 
-    def _build_page(self):
-        self.chapter_pills = [self._chapter_pill(i) for i in range(len(CHAPTERS))]
+    def build_stage(self):
+        # ---- chapter 1 and 2: wave pictures ----
+        self.wave_a_image = self._picture(self._wave_a())
+        self.wave_b_image = self._picture(self._wave_b())
+        self.sum_image = self._picture(self._sum_wave())
 
-        header = ft.Container(
-            padding=ft.Padding.symmetric(horizontal=24, vertical=18),
-            border_radius=AppLayout.CARD_RADIUS,
-            border=ft.Border.all(1, AppColors.BORDER),
-            gradient=ft.LinearGradient(
-                begin=ft.Alignment.CENTER_LEFT,
-                end=ft.Alignment.CENTER_RIGHT,
-                colors=["#101C2E", "#0E1526", "#0B1222"],
-            ),
-            content=ft.Row(
-                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                wrap=True,
-                run_spacing=12,
-                controls=[
-                    ft.Column(
-                        spacing=4,
-                        controls=[
-                            ft.Container(
-                                padding=ft.Padding.symmetric(horizontal=9, vertical=3),
-                                border_radius=7,
-                                bgcolor=palette.argb("22", palette.INPUT),
-                                content=ft.Text("DISCOVER  •  LESSON 5", size=9,
-                                                weight=ft.FontWeight.BOLD,
-                                                color=palette.INPUT),
-                            ),
-                            ft.Text("An image is a sum of waves",
-                                    size=24, weight=ft.FontWeight.BOLD,
-                                    color=AppColors.TEXT),
-                            ft.Text("The idea every frequency feature is built on, "
-                                    "starting with a single line of pixels.",
-                                    size=11, color=AppColors.TEXT_SECONDARY),
-                        ],
-                    ),
-                    ft.Row(spacing=8, wrap=True, controls=self.chapter_pills),
-                ],
-            ),
-        )
+        self.wave_a_note = ft.Text("", **mono(11, WAVE_A))
+        self.wave_b_note = ft.Text("", **mono(11, WAVE_B))
+        self.sum_note = ft.Text("", **mono(11, SUM_ACCENT))
 
-        stage = ft.Container(
-            padding=ft.Padding.symmetric(horizontal=20, vertical=18),
-            border_radius=AppLayout.CARD_RADIUS,
-            border=ft.Border.all(1, AppColors.BORDER),
-            gradient=ft.RadialGradient(
-                center=ft.Alignment(0, -0.3),
-                radius=1.3,
-                colors=["#101A33", "#070C18"],
-            ),
-            content=ft.Column(
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                spacing=18,
-                controls=[
-                    self._caption_block(),
-                    self._image_row(),
-                    self._plot_card(),
-                    self._basis_card(),
-                    self._pattern_card(),
-                ],
-            ),
-        )
+        self.wave_a_card = self.picture_card(
+            self.wave_a_image, "WAVE A", WAVE_A, self.wave_a_note)
+        self.wave_b_card = self.picture_card(
+            self.wave_b_image, "WAVE B", WAVE_B, self.wave_b_note)
+        self.sum_card = self.picture_card(
+            self.sum_image, "A + B", SUM_ACCENT, self.sum_note)
+        self.plus_slot = self.slot(self.arrow("add"), width=70)
 
-        controls = ft.ResponsiveRow(
-            spacing=14,
-            run_spacing=14,
-            controls=[
-                ft.Container(col={"xs": 12, "lg": 4}, content=self._playback_panel()),
-                ft.Container(col={"xs": 12, "lg": 4}, content=self._signal_panel()),
-                ft.Container(col={"xs": 12, "lg": 4}, content=self._rebuild_panel()),
-            ],
-        )
+        self.waves_row = self.row([
+            self.wave_a_card,
+            self.plus_slot,
+            self.wave_b_card,
+            self.slot(self.arrow("="), width=70),
+            self.sum_card,
+        ])
 
-        return ft.Column(
-            spacing=16,
-            horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
-            controls=[header, stage, controls],
-        )
-
-    def _chapter_pill(self, index):
-        number = ft.Container(
-            width=22, height=22,
-            alignment=ft.Alignment.CENTER,
-            border_radius=11,
-            border=ft.Border.all(1, palette.INPUT),
-            content=ft.Text(str(index + 1), size=9, weight=ft.FontWeight.BOLD,
-                            color=palette.INPUT),
-        )
-        return ft.Container(
-            padding=ft.Padding.only(left=6, right=12, top=6, bottom=6),
-            border_radius=12,
-            bgcolor=AppColors.SURFACE_DARK,
-            border=ft.Border.all(1, AppColors.BORDER_SOFT),
-            ink=True,
-            tooltip=f"Jump to chapter {index + 1}",
-            on_click=lambda e, i=index: self.jump_to(i),
-            animate=ft.Animation(AppAnimations.NORMAL, ft.AnimationCurve.EASE_OUT),
-            data=number,
-            content=ft.Row(
-                tight=True, spacing=8,
-                controls=[number, ft.Text(CHAPTERS[index], size=10,
-                                          color=AppColors.TEXT_SECONDARY)],
-            ),
-        )
-
-    def _caption_block(self):
-        self.caption_step = ft.Text("", size=10, weight=ft.FontWeight.BOLD,
-                                    color=palette.INPUT)
-        self.caption_text = ft.Text("", size=16, weight=ft.FontWeight.W_600,
-                                    color=AppColors.TEXT,
-                                    text_align=ft.TextAlign.CENTER,
-                                    max_lines=2)
-        self.caption = ft.Container(
-            width=820,
-            height=66,
-            alignment=ft.Alignment.TOP_CENTER,
-            opacity=1.0,
-            animate_opacity=ft.Animation(220, ft.AnimationCurve.EASE_OUT),
-            content=ft.Column(
-                spacing=3,
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                controls=[self.caption_step, self.caption_text],
-            ),
-        )
-        return self.caption
-
-    # ---------------- images ----------------
-
-    def _image_row(self):
-        self.scene_image = ft.Image(
-            src=palette.png_bytes(self.trace.image, scale=2),
-            width=IMAGE_PANEL, height=IMAGE_PANEL,
-            fit=ft.BoxFit.FILL, border_radius=12, gapless_playback=True,
-        )
-        self.row_marker = ft.Container(
-            width=IMAGE_PANEL, height=3,
-            bgcolor=WAVE_COLOUR,
-            border_radius=2,
-            animate_position=ft.Animation(450, ft.AnimationCurve.EASE_IN_OUT),
-            left=0,
-            top=0,
-            shadow=ft.BoxShadow(blur_radius=10, color=palette.argb("CC", WAVE_COLOUR)),
-        )
-
-        self.scene_card = self._framed(
-            ft.Stack(
-                width=IMAGE_PANEL, height=IMAGE_PANEL,
-                controls=[self.scene_image, self.row_marker],
-            ),
-            "THE PICTURE", palette.INPUT,
-        )
-
-        self.rebuilt_image = ft.Image(
-            src=palette.png_bytes(self.trace.image, scale=2),
-            width=IMAGE_PANEL, height=IMAGE_PANEL,
-            fit=ft.BoxFit.FILL, border_radius=12, gapless_playback=True,
-        )
-        self.rebuilt_note = ft.Text("", **_mono(11, SPECTRUM_ACCENT))
-        self.rebuilt_card = self._framed(self.rebuilt_image, "REBUILT",
-                                         SPECTRUM_ACCENT, self.rebuilt_note)
-        self._show(self.rebuilt_card, False)
-
-        self.spectrum_image = ft.Image(
-            src=palette.png_bytes(self.trace.spectrum_image, scale=2),
-            width=SPECTRUM_PANEL, height=SPECTRUM_PANEL,
-            fit=ft.BoxFit.FILL, border_radius=12, gapless_playback=True,
-        )
-        self.spectrum_note = ft.Text("", size=9, color=AppColors.MUTED)
-        self.spectrum_card = self._framed(self.spectrum_image, "SPECTRUM  ·  |F(u,v)|",
-                                          palette.KERNEL_FRAME, self.spectrum_note)
-        self._show(self.spectrum_card, False)
-
-        return ft.Row(
-            alignment=ft.MainAxisAlignment.CENTER,
-            vertical_alignment=ft.CrossAxisAlignment.START,
-            wrap=True,
-            spacing=16,
-            run_spacing=16,
-            controls=[self.scene_card, self.spectrum_card, self.rebuilt_card],
-        )
-
-    @staticmethod
-    def _show(control, visible):
-        """Fade a card without moving it: the layout stays put."""
-        control.opacity = 1.0 if visible else 0.0
-        control.visible = True
-
-    def _framed(self, body, title, accent, note=None):
-        controls = [
-            ft.Row(
-                tight=True, spacing=7,
-                alignment=ft.MainAxisAlignment.CENTER,
-                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                controls=[
-                    ft.Container(width=7, height=7, border_radius=4, bgcolor=accent),
-                    ft.Text(title, size=9, weight=ft.FontWeight.BOLD, color=accent),
-                ],
-            ),
-            ft.Container(
-                border_radius=13,
-                border=ft.Border.all(1.4, palette.argb("88", accent)),
-                shadow=ft.BoxShadow(blur_radius=26, spread_radius=-9,
-                                    color=palette.argb("66", accent)),
-                content=body,
-            ),
-            ft.Container(height=18, alignment=ft.Alignment.CENTER, content=note),
-        ]
-
-        return ft.Container(
-            width=IMAGE_PANEL + 32,
-            height=IMAGE_PANEL + 80,
-            alignment=ft.Alignment.TOP_CENTER,
-            opacity=1.0,
+        # ---- the wave, drawn as a graph, under the pictures ----
+        self.plot = fc.Canvas(width=PLOT_W, height=PLOT_H, shapes=[])
+        self.plot_note = ft.Text("", size=10, color=AppColors.TEXT_SECONDARY)
+        self.plot_card = ft.Container(
+            opacity=0.0,
             animate_opacity=ft.Animation(500, ft.AnimationCurve.EASE_OUT),
             padding=14,
             border_radius=16,
@@ -306,877 +126,706 @@ class LearnSpectrumView:
             border=ft.Border.all(1, AppColors.BORDER_SOFT),
             content=ft.Column(
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                spacing=9,
-                controls=controls,
+                spacing=8,
+                controls=[
+                    self.card_title("BRIGHTNESS ALONG ONE LINE OF THE PICTURE",
+                                    WAVE_A),
+                    self.plot,
+                    self.plot_note,
+                ],
             ),
         )
 
-    # ---------------- the signal plot ----------------
+        # ---- chapter 1 and 4: the spectrum of whatever is shown ----
+        self.spectrum_image = self._picture(self._spectrum_of(self._wave_a()))
+        self.spectrum_note = ft.Text("", size=10, color=AppColors.TEXT_SECONDARY)
+        self.spectrum_card = self.picture_card(
+            self.spectrum_image, "ITS SPECTRUM", SPECTRUM_ACCENT,
+            self.spectrum_note)
 
-    def _plot_card(self):
-        self.plot = fc.Canvas(width=PLOT_W, height=PLOT_H, shapes=[])
-        self.plot_legend = ft.Row(
-            spacing=16,
-            alignment=ft.MainAxisAlignment.CENTER,
-            controls=[
-                self._legend("the real row", SIGNAL_COLOUR),
-                self._legend("waves added so far", SUM_COLOUR),
-                self._legend("the wave being added", WAVE_COLOUR),
-            ],
+        self.spectrum_row = self.row([self.spectrum_card])
+
+        # ---- chapter 3: the planet, rebuilt ----
+        self.original_image = self._picture(self.trace.image)
+        self.rebuilt_image = self._picture(self.trace.reconstruct_top(self.kept))
+        self.rebuilt_note = ft.Text("", **mono(11, SUM_ACCENT))
+
+        self.rebuild_row = self.row([
+            self.picture_card(self.original_image, "A REAL PHOTOGRAPH", WAVE_A),
+            self.slot(self.arrow("built from waves"), width=110),
+            self.picture_card(self.rebuilt_image, "WAVES ADDED SO FAR",
+                              SUM_ACCENT, self.rebuilt_note),
+        ])
+
+        # ---- chapter 4: measure one pattern, then compare three ----
+        self.measured_stripes = self._picture(self._wave_a())
+        self.measured_spectrum = self._picture(self._wave_a())
+        self.measure_lines = {
+            "bands": ft.Text("", **mono(15, WAVE_A)),
+            "steps": ft.Text("", **mono(15, SPECTRUM_ACCENT)),
+            "check": ft.Text("", **mono(15, SUM_ACCENT)),
+            "angle": ft.Text("", **mono(15, WAVE_B)),
+        }
+
+        self.measure_card = ft.Container(
+            width=310,
+            padding=16,
+            border_radius=16,
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment.TOP_LEFT,
+                end=ft.Alignment.BOTTOM_RIGHT,
+                colors=["#121A2B", "#0C1220"],
+            ),
+            border=ft.Border.all(1, AppColors.BORDER_SOFT),
+            content=ft.Column(
+                spacing=11,
+                controls=[
+                    self.card_title("WHAT THE DOT IS TELLING YOU",
+                                    SPECTRUM_ACCENT),
+                    self._measure_row("Bands are", self.measure_lines["bands"]),
+                    self._measure_row("Dot sits", self.measure_lines["steps"]),
+                    ft.Divider(height=1, color="#1E2C46"),
+                    self._measure_row("So", self.measure_lines["check"]),
+                    self._measure_row("Tilt", self.measure_lines["angle"]),
+                ],
+            ),
         )
-        self.plot_note = ft.Text("", **_mono(11, SUM_COLOUR))
 
-        self.plot_card = ft.Container(
+        self.guide_row = self.row([
+            self.picture_card(self.measured_stripes, "THE STRIPES", WAVE_A),
+            self.slot(self.arrow("measure"), width=84),
+            self.picture_card(self.measured_spectrum, "ITS SPECTRUM, MEASURED",
+                              SPECTRUM_ACCENT),
+            self.measure_card,
+        ])
+
+        # A compact three-up so the pattern is obvious at a glance.
+        self.compare_row = ft.Container(
             opacity=0.0,
             animate_opacity=ft.Animation(500, ft.AnimationCurve.EASE_OUT),
-            padding=14,
-            border_radius=14,
-            bgcolor=AppColors.SURFACE_DARK,
+            content=self.row([
+                self._compare_card(spacing) for spacing in (32, 12, 6)
+            ]),
+        )
+
+        return [self.waves_row, self.plot_card, self.spectrum_row,
+                self.rebuild_row, self.guide_row, self.compare_row]
+
+    def _picture(self, array, size=PICTURE):
+        return ft.Image(
+            src=palette.png_bytes(array, scale=2),
+            width=size, height=size,
+            fit=ft.BoxFit.FILL, border_radius=12, gapless_playback=True,
+        )
+
+    @staticmethod
+    def _measure_row(label, value):
+        return ft.Row(
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[
+                ft.Text(label, size=10, color=AppColors.MUTED),
+                value,
+            ],
+        )
+
+    def _compare_card(self, spacing):
+        """One spacing, its spectrum, and the two numbers underneath."""
+        picture = wave_image(self.size, spacing, 0)
+        marked, info = self._annotated_spectrum(picture)
+
+        return ft.Container(
+            padding=12,
+            border_radius=16,
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment.TOP_LEFT,
+                end=ft.Alignment.BOTTOM_RIGHT,
+                colors=["#121A2B", "#0C1220"],
+            ),
             border=ft.Border.all(1, AppColors.BORDER_SOFT),
             content=ft.Column(
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 spacing=8,
-                controls=[self.plot, self.plot_legend, self.plot_note],
+                controls=[
+                    ft.Row(
+                        spacing=8,
+                        alignment=ft.MainAxisAlignment.CENTER,
+                        controls=[
+                            self._picture(picture, 104),
+                            ft.Image(
+                                src=self._rgb_png(marked),
+                                width=104, height=104,
+                                fit=ft.BoxFit.FILL, border_radius=10,
+                                gapless_playback=True,
+                            ),
+                        ],
+                    ),
+                    ft.Text(f"{spacing} px bands", size=11,
+                            weight=ft.FontWeight.BOLD, color=WAVE_A),
+                    ft.Text(f"dot {info['radius']:.0f} steps out", size=10,
+                            color=AppColors.TEXT_SECONDARY),
+                ],
             ),
         )
-        self._draw_plot(show_sum=False, show_wave=False)
-        return self.plot_card
+
+    # ---------------- pictures ----------------
+
+    def _wave_a(self):
+        return wave_image(self.size, self.spacing_a, self.angle_a)
+
+    def _wave_b(self):
+        return wave_image(self.size, self.spacing_b, self.angle_b)
+
+    def _sum_wave(self):
+        return add_waves(self._wave_a(), self._wave_b())
 
     @staticmethod
-    def _legend(label, colour):
-        return ft.Row(
-            tight=True, spacing=6,
-            controls=[
-                ft.Container(width=16, height=3, border_radius=2, bgcolor=colour),
-                ft.Text(label, size=9, color=AppColors.TEXT_SECONDARY),
-            ],
-        )
+    def _spectrum_of(image):
+        return spectrum_picture(np.fft.fft2(np.asarray(image, dtype=np.float64)))
 
-    def _polyline(self, values, colour, width=2.0, baseline=128.0, scale=None):
-        """Turn a 1D array into a canvas path across the plot area."""
-        values = np.asarray(values, dtype=np.float64)
-        count = len(values)
-        if count < 2:
-            return None
+    @staticmethod
+    def _rgb_png(array):
+        from io import BytesIO
 
-        scale = scale or 255.0
-        step = PLOT_W / (count - 1)
-        margin = 12
+        from PIL import Image
+
+        buffer = BytesIO()
+        Image.fromarray(np.asarray(array, dtype=np.uint8)).save(buffer, format="PNG")
+        return buffer.getvalue()
+
+    @staticmethod
+    def _annotated_spectrum(image):
+        """Shared with the texture lesson: see spectrum_trace."""
+        return annotate_spectrum(image)
+
+    # ---------------- the graph ----------------
+
+    def _draw_plot(self, image, colour, label):
+        """One row of a picture, drawn as a rising and falling line."""
+        row = np.asarray(image, dtype=np.float64)[self.size // 2]
+
+        margin = 10
+        step = PLOT_W / max(1, len(row) - 1)
 
         def y_of(value):
-            fraction = (value - baseline) / scale
-            return PLOT_H / 2 - fraction * (PLOT_H - 2 * margin)
+            return PLOT_H - margin - (value / 255.0) * (PLOT_H - 2 * margin)
 
-        elements = [fc.Path.MoveTo(0, y_of(values[0]))]
-        for index in range(1, count):
-            elements.append(fc.Path.LineTo(index * step, y_of(values[index])))
-
-        return fc.Path(
-            elements=elements,
-            paint=ft.Paint(
-                style=ft.PaintingStyle.STROKE,
-                stroke_width=width,
-                color=colour,
-            ),
-        )
-
-    def _draw_plot(self, show_sum=True, show_wave=False):
-        shapes = []
-
-        # midline
-        shapes.append(
+        shapes = [
             fc.Path(
                 elements=[fc.Path.MoveTo(0, PLOT_H / 2),
                           fc.Path.LineTo(PLOT_W, PLOT_H / 2)],
                 paint=ft.Paint(style=ft.PaintingStyle.STROKE, stroke_width=1,
                                color="#1E2C46"),
-            )
-        )
-
-        signal = self.trace.row_signal(self.row)
-        line = self._polyline(signal, SIGNAL_COLOUR, 2.0)
-        if line:
-            shapes.append(line)
-
-        if show_wave and self.harmonics > 0:
-            wave = self.trace.single_wave(self.row, self.harmonics)
-            drawn = self._polyline(wave, WAVE_COLOUR, 1.6, baseline=0.0, scale=255.0)
-            if drawn:
-                shapes.append(drawn)
-
-        if show_sum:
-            partial = self.trace.partial_sum(self.row, self.harmonics)
-            drawn = self._polyline(partial, SUM_COLOUR, 2.6)
-            if drawn:
-                shapes.append(drawn)
+            ),
+            fc.Path(
+                elements=(
+                    [fc.Path.MoveTo(0, y_of(row[0]))]
+                    + [fc.Path.LineTo(i * step, y_of(row[i]))
+                       for i in range(1, len(row))]
+                ),
+                paint=ft.Paint(style=ft.PaintingStyle.STROKE, stroke_width=2.6,
+                               color=colour),
+            ),
+        ]
 
         self.plot.shapes = shapes
+        self.plot_note.value = label
 
-        if show_sum:
-            error = self.trace.row_error(self.row, self.harmonics)
-            self.plot_note.value = (
-                f"row {self.row}  ·  {self.harmonics} "
-                f"wave{'' if self.harmonics == 1 else 's'} added  ·  "
-                f"still off by {error:.1f}"
-            )
-        else:
-            self.plot_note.value = f"row {self.row} of the picture, as a signal"
+    # =========================================================
+    # PANELS
+    # =========================================================
 
-    # ---------------- basis images ----------------
+    def side_panels(self):
+        self.spacing_a_text = ft.Text("", **mono(11, WAVE_A))
+        self.spacing_b_text = ft.Text("", **mono(11, WAVE_B))
+        self.angle_a_text = ft.Text("", **mono(11, WAVE_A))
+        self.angle_b_text = ft.Text("", **mono(11, WAVE_B))
+        self.kept_text = ft.Text("", **mono(11, SUM_ACCENT))
 
-    def _basis_card(self):
-        self.basis_image_control = ft.Image(
-            src=palette.png_bytes(basis_image(0, 2, self.trace.size), scale=2),
-            width=170, height=170, fit=ft.BoxFit.FILL,
-            border_radius=10, gapless_playback=True,
-        )
-        self.basis_spectrum = ft.Image(
-            src=palette.png_bytes(
-                spectrum_picture(np.fft.fft2(basis_image(0, 2, self.trace.size)
-                                             .astype(float))), scale=2),
-            width=170, height=170, fit=ft.BoxFit.FILL,
-            border_radius=10, gapless_playback=True,
-        )
-        self.basis_title = ft.Text("", size=12, weight=ft.FontWeight.BOLD,
-                                   color=WAVE_COLOUR)
-        self.basis_note = ft.Text("", size=10, color=AppColors.TEXT_SECONDARY)
-
-        self.basis_card = ft.Container(
-            opacity=0.0,
-            animate_opacity=ft.Animation(500, ft.AnimationCurve.EASE_OUT),
-            padding=14,
-            border_radius=14,
-            bgcolor=AppColors.SURFACE_DARK,
-            border=ft.Border.all(1, AppColors.BORDER_SOFT),
-            content=ft.Column(
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                spacing=10,
-                controls=[
-                    self.basis_title,
-                    ft.Row(
-                        alignment=ft.MainAxisAlignment.CENTER,
-                        spacing=16,
-                        controls=[
-                            self._mini("ONE WAVE", self.basis_image_control,
-                                       WAVE_COLOUR),
-                            ft.Icon(ft.Icons.ARROW_FORWARD_ROUNDED, size=22,
-                                    color=AppColors.MUTED),
-                            self._mini("ITS PLACE  ·  F(u,v)",
-                                       self.basis_spectrum, palette.KERNEL_FRAME),
-                        ],
-                    ),
-                    self.basis_note,
-                ],
-            ),
-        )
-        return self.basis_card
-
-    @staticmethod
-    def _mini(title, image, accent):
-        return ft.Column(
-            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            spacing=6,
-            controls=[
-                ft.Container(
-                    border_radius=12,
-                    border=ft.Border.all(1.2, palette.argb("77", accent)),
-                    content=image,
-                ),
-                ft.Text(title, size=8, weight=ft.FontWeight.BOLD, color=accent),
-            ],
-        )
-
-    def _show_basis(self, index):
-        self.basis_index = index % len(BASIS_EXAMPLES)
-        name, u, v, note = BASIS_EXAMPLES[self.basis_index]
-
-        wave = basis_image(u, v, self.trace.size)
-        self.basis_image_control.src = palette.png_bytes(wave, scale=2)
-        self.basis_spectrum.src = palette.png_bytes(
-            spectrum_picture(np.fft.fft2(wave.astype(float))), scale=2
-        )
-        self.basis_title.value = f"{name}   ·   u = {u}, v = {v}"
-        self.basis_note.value = note
-
-    # ---------------- patterns ----------------
-
-    def _pattern_card(self):
-        self.patterns = self.trace.pattern_set()
-
-        self.pattern_image = ft.Image(
-            src=palette.png_bytes(self.patterns[0]["image"], scale=2),
-            width=180, height=180, fit=ft.BoxFit.FILL,
-            border_radius=10, gapless_playback=True,
-        )
-        self.pattern_spectrum = ft.Image(
-            src=palette.png_bytes(self.patterns[0]["spectrum"], scale=2),
-            width=180, height=180, fit=ft.BoxFit.FILL,
-            border_radius=10, gapless_playback=True,
-        )
-        self.pattern_title = ft.Text("", size=12, weight=ft.FontWeight.BOLD,
-                                     color=palette.KERNEL_FRAME)
-        self.pattern_note = ft.Text("", size=10, color=AppColors.TEXT_SECONDARY,
-                                    text_align=ft.TextAlign.CENTER)
-        self.pattern_measure = ft.Text("", **_mono(11, SPECTRUM_ACCENT))
-
-        self.pattern_card = ft.Container(
-            opacity=0.0,
-            animate_opacity=ft.Animation(500, ft.AnimationCurve.EASE_OUT),
-            padding=14,
-            border_radius=14,
-            bgcolor=AppColors.SURFACE_DARK,
-            border=ft.Border.all(1, AppColors.BORDER_SOFT),
-            content=ft.Column(
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                spacing=10,
-                controls=[
-                    self.pattern_title,
-                    ft.Row(
-                        alignment=ft.MainAxisAlignment.CENTER,
-                        spacing=16,
-                        controls=[
-                            self._mini("PICTURE", self.pattern_image, palette.INPUT),
-                            ft.Icon(ft.Icons.ARROW_FORWARD_ROUNDED, size=22,
-                                    color=AppColors.MUTED),
-                            self._mini("SPECTRUM", self.pattern_spectrum,
-                                       palette.KERNEL_FRAME),
-                        ],
-                    ),
-                    self.pattern_note,
-                    self.pattern_measure,
-                ],
-            ),
-        )
-        self._show_pattern(0)
-        return self.pattern_card
-
-    def _show_pattern(self, index):
-        self.pattern_index = index % len(self.patterns)
-        item = self.patterns[self.pattern_index]
-
-        self.pattern_image.src = palette.png_bytes(item["image"], scale=2)
-        self.pattern_spectrum.src = palette.png_bytes(item["spectrum"], scale=2)
-        self.pattern_title.value = item["name"]
-        self.pattern_note.value = item["note"]
-
-        radius = self.trace.peak_radius(item["image"])
-        if item["name"] == "The planet":
-            self.pattern_measure.value = "no single peak: a real picture needs them all"
-        else:
-            spacing = self.trace.size / radius if radius else 0
-            self.pattern_measure.value = (
-                f"brightest peak {radius:.1f} from the centre  →  "
-                f"stripes about {spacing:.1f} px apart"
-            )
-
-    # ---------------- control panels ----------------
-
-    def _panel(self, title, subtitle, icon, accent, body):
-        return ft.Container(
-            padding=18,
-            border_radius=AppLayout.CARD_RADIUS,
-            bgcolor=AppColors.SURFACE,
-            border=ft.Border.all(1, AppColors.BORDER),
-            content=ft.Column(
-                spacing=14,
-                controls=[
-                    ft.Row(
-                        spacing=10,
-                        controls=[
-                            ft.Container(
-                                width=34, height=34,
-                                alignment=ft.Alignment.CENTER,
-                                border_radius=10,
-                                bgcolor=palette.argb("22", accent),
-                                content=ft.Icon(icon, size=18, color=accent),
-                            ),
-                            ft.Column(
-                                spacing=0,
-                                controls=[
-                                    ft.Text(title, size=11, weight=ft.FontWeight.BOLD,
-                                            color=accent),
-                                    ft.Text(subtitle, size=10, color=AppColors.MUTED),
-                                ],
-                            ),
-                        ],
-                    ),
-                    body,
-                ],
-            ),
-        )
-
-    def _small_button(self, label, icon, handler, accent=None):
-        return ft.Container(
-            expand=True,
-            height=38,
-            border_radius=11,
-            bgcolor=AppColors.SURFACE_DARK,
-            border=ft.Border.all(1, accent or AppColors.BORDER_SOFT),
-            ink=True,
-            on_click=handler,
-            content=ft.Row(
-                alignment=ft.MainAxisAlignment.CENTER,
-                spacing=6,
-                controls=[
-                    ft.Icon(icon, size=15, color=accent or AppColors.TEXT_SECONDARY),
-                    ft.Text(label, size=10, color=accent or AppColors.TEXT_SECONDARY),
-                ],
-            ),
-        )
-
-    def _playback_panel(self):
-        self.play_icon = ft.Icon(ft.Icons.PLAY_ARROW_ROUNDED, size=26, color="#0B1020")
-        self.play_label = ft.Text("Play lesson", size=13, weight=ft.FontWeight.BOLD,
-                                  color="#0B1020")
-        self.play_button = ft.Container(
-            height=50,
-            padding=ft.Padding.symmetric(horizontal=18),
-            border_radius=14,
-            gradient=ft.LinearGradient(colors=[palette.INPUT, "#0EA5E9"]),
-            shadow=ft.BoxShadow(blur_radius=22, spread_radius=-6,
-                                color=palette.argb("99", palette.INPUT)),
-            ink=True,
-            on_click=self.toggle_play,
-            content=ft.Row(
-                alignment=ft.MainAxisAlignment.CENTER,
-                spacing=8,
-                controls=[self.play_icon, self.play_label],
-            ),
-        )
-        self.speed_label = ft.Text("1×", size=11, weight=ft.FontWeight.BOLD,
-                                   color=palette.INPUT)
-
-        body = ft.Column(
-            spacing=12,
-            controls=[
-                self.play_button,
-                ft.Row(
-                    spacing=8,
-                    controls=[
-                        self._small_button("Previous", ft.Icons.SKIP_PREVIOUS_ROUNDED,
-                                           lambda e: self.jump_to(max(0, self.chapter - 1))),
-                        self._small_button("Next", ft.Icons.SKIP_NEXT_ROUNDED,
-                                           lambda e: self.jump_to(
-                                               min(len(CHAPTERS) - 1, self.chapter + 1))),
-                        self._small_button("Restart", ft.Icons.REPLAY_ROUNDED,
-                                           lambda e: self.jump_to(0)),
-                    ],
-                ),
-                ft.Row(
-                    controls=[
-                        ft.Icon(ft.Icons.SPEED, size=16, color=AppColors.MUTED),
-                        ft.Text("Speed", size=10, color=AppColors.MUTED),
-                        ft.Container(expand=True, content=ft.Slider(
-                            min=0.5, max=2.0, divisions=6, value=1.0,
-                            active_color=palette.INPUT,
-                            on_change=self._on_speed,
-                        )),
-                        self.speed_label,
-                    ],
-                ),
-            ],
-        )
-        return self._panel("PLAYBACK", "One idea at a time.",
-                           ft.Icons.SMART_DISPLAY_OUTLINED, palette.INPUT, body)
-
-    def _signal_panel(self):
-        self.row_text = ft.Text(f"row {self.row}", **_mono(11, WAVE_COLOUR))
-        self.harmonic_text = ft.Text("0 waves", **_mono(11, SUM_COLOUR))
-
-        body = ft.Column(
+        waves_body = ft.Column(
             spacing=10,
             controls=[
-                ft.Row(
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                    controls=[ft.Text("Which row", size=10, color=AppColors.MUTED),
-                              self.row_text],
+                self.slider_row(
+                    "Wave A: stripe spacing", self.spacing_a_text,
+                    ft.Slider(min=0, max=len(SPACING_STEPS) - 1,
+                              divisions=len(SPACING_STEPS) - 1,
+                              value=SPACING_STEPS.index(self.spacing_a),
+                              active_color=WAVE_A,
+                              on_change=lambda e: self.set_wave(
+                                  "a", SPACING_STEPS[int(e.control.value)])),
                 ),
-                ft.Slider(min=0, max=self.trace.size - 1, divisions=self.trace.size - 1,
-                          value=self.row, active_color=WAVE_COLOUR,
-                          on_change=lambda e: self.set_row(int(e.control.value))),
-                ft.Row(
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                    controls=[ft.Text("Waves added", size=10, color=AppColors.MUTED),
-                              self.harmonic_text],
+                self.slider_row(
+                    "Wave B: stripe spacing", self.spacing_b_text,
+                    ft.Slider(min=0, max=len(SPACING_STEPS) - 1,
+                              divisions=len(SPACING_STEPS) - 1,
+                              value=SPACING_STEPS.index(self.spacing_b),
+                              active_color=WAVE_B,
+                              on_change=lambda e: self.set_wave(
+                                  "b", SPACING_STEPS[int(e.control.value)])),
                 ),
-                ft.Slider(min=0, max=self.trace.size // 2, divisions=self.trace.size // 2,
-                          value=0, active_color=SUM_COLOUR,
-                          on_change=lambda e: self.set_harmonics(int(e.control.value))),
-                ft.Text("Drag to the right and watch the blue curve become the row.",
-                        size=10, color=AppColors.MUTED),
+                self.slider_row(
+                    "Wave A: direction", self.angle_a_text,
+                    ft.Slider(min=0, max=90, divisions=6, value=self.angle_a,
+                              active_color=WAVE_A,
+                              on_change=lambda e: self.set_wave("angle_a", e.control.value)),
+                ),
+                self.slider_row(
+                    "Wave B: direction", self.angle_b_text,
+                    ft.Slider(min=0, max=90, divisions=6, value=self.angle_b,
+                              active_color=WAVE_B,
+                              on_change=lambda e: self.set_wave("angle", e.control.value)),
+                ),
             ],
         )
-        return self._panel("THE SIGNAL", "One row, rebuilt from waves.",
-                           ft.Icons.SHOW_CHART, SUM_COLOUR, body)
 
-    def _rebuild_panel(self):
-        self.coefficient_text = ft.Text("", **_mono(11, SPECTRUM_ACCENT))
-        self.quality_text = ft.Text("", size=10, color=AppColors.TEXT_SECONDARY)
-
-        body = ft.Column(
+        self.rebuild_summary = ft.Text("", size=10, color=AppColors.TEXT_SECONDARY)
+        rebuild_body = ft.Column(
             spacing=10,
             controls=[
-                ft.Row(
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                    controls=[ft.Text("Coefficients kept", size=10,
-                                      color=AppColors.MUTED),
-                              self.coefficient_text],
+                self.slider_row(
+                    "Waves used", self.kept_text,
+                    ft.Slider(min=0, max=len(REBUILD_STEPS) - 1,
+                              divisions=len(REBUILD_STEPS) - 1, value=3,
+                              active_color=SUM_ACCENT,
+                              on_change=lambda e: self.set_kept(
+                                  REBUILD_STEPS[int(e.control.value)])),
                 ),
-                ft.Slider(min=0, max=len(COEFFICIENT_STEPS) - 1,
-                          divisions=len(COEFFICIENT_STEPS) - 1,
-                          value=3, active_color=SPECTRUM_ACCENT,
-                          on_change=lambda e: self.set_coefficients(
-                              COEFFICIENT_STEPS[int(e.control.value)])),
-                self.quality_text,
-                ft.Row(
-                    spacing=8,
-                    controls=[
-                        self._small_button("Next wave shape", ft.Icons.WAVES,
-                                           lambda e: self._cycle_basis()),
-                        self._small_button("Next pattern", ft.Icons.PATTERN,
-                                           lambda e: self._cycle_pattern()),
-                    ],
-                ),
+                self.rebuild_summary,
+                self.small_button("Check the maths", ft.Icons.FACT_CHECK,
+                                  lambda e: self.run_check()),
             ],
         )
-        return self._panel("THE PICTURE", "Rebuilt from its strongest waves.",
-                           ft.Icons.AUTO_AWESOME_MOSAIC, SPECTRUM_ACCENT, body)
+
+        return [
+            self.panel("THE TWO WAVES", "Change them and watch the dots move.",
+                       ft.Icons.WAVES, WAVE_A, waves_body),
+            self.panel("THE REBUILD", "How many waves the photo needs.",
+                       ft.Icons.AUTO_AWESOME_MOSAIC, SUM_ACCENT, rebuild_body),
+        ]
 
     # =========================================================
     # STATE
     # =========================================================
 
-    def _apply_chapter_state(self, chapter, first_build=False):
-        self.chapter = chapter
+    def apply_chapter_state(self, chapter):
+        self.show(self.waves_row, chapter <= 1)
+        self.show(self.wave_b_card, chapter == 1)
+        self.show(self.plus_slot, chapter == 1)
+        self.show(self.sum_card, chapter == 1)
+        self.show(self.plot_card, chapter <= 1)
+        self.show(self.spectrum_row, chapter in (0, 3))
+        self.show(self.rebuild_row, chapter in (2, 4))
+        self.show(self.guide_row, chapter == 3)
+        self.show(self.compare_row, chapter == 3)
 
-        self._show(self.plot_card, chapter <= 1)
-        self._show(self.basis_card, chapter == 2)
-        self._show(self.pattern_card, chapter == 3)
-        self._show(self.spectrum_card, chapter >= 3)
-        self._show(self.rebuilt_card, chapter >= 4)
-        self.row_marker.opacity = 1.0 if chapter <= 1 else 0.0
-
-        self._move_marker()
-
-        if chapter == 0:
-            self.harmonics = 0
-            self._draw_plot(show_sum=False)
-        elif chapter == 1:
-            self._draw_plot(show_sum=True, show_wave=True)
-
-        if chapter >= 4:
+        if chapter <= 1:
+            self._refresh_waves(show_sum=chapter == 1)
+        if chapter == 3:
+            self._refresh_measure()
+            self.spectrum_image.src = palette.png_bytes(
+                self.trace.spectrum_image, scale=2)
+            self.spectrum_note.value = "a real photograph needs dots everywhere"
+        if chapter in (2, 4):
             self._refresh_rebuild()
 
         self._sync_labels()
 
-        step, text = self._resting_caption(chapter)
-        self.caption_step.value = step
-        self.caption_text.value = text
-
-        self._refresh_chapter_pills()
-
-        if not first_build:
-            self._safe_update(self.control)
-
-    def _resting_caption(self, chapter):
-        step = f"CHAPTER {chapter + 1}  ·  {CHAPTERS[chapter].upper()}"
-        if chapter == 0:
-            return step, "Press Play. We will take this picture apart into waves."
-        return step, "Press Play to continue, or move the sliders yourself."
-
-    def _move_marker(self):
-        self.row_marker.top = (self.row / self.trace.size) * IMAGE_PANEL
-
     def _sync_labels(self):
-        self.row_text.value = f"row {self.row}"
-        self.harmonic_text.value = (
-            f"{self.harmonics} wave{'' if self.harmonics == 1 else 's'}"
-        )
-        self.coefficient_text.value = f"{self.coefficients:,}"
+        self.spacing_a_text.value = f"{int(self.spacing_a)} px apart"
+        self.spacing_b_text.value = f"{int(self.spacing_b)} px apart"
+        self.angle_a_text.value = f"{int(self.angle_a)}°"
+        self.angle_b_text.value = f"{int(self.angle_b)}°"
+        self.kept_text.value = f"{self.kept:,}"
 
-    @staticmethod
-    def _psnr_text(psnr):
-        """A perfect rebuild scores infinite PSNR; say so in words."""
-        return "exact" if not np.isfinite(psnr) else f"{psnr:.1f} dB"
+    def _refresh_waves(self, show_sum=False):
+        wave_a = self._wave_a()
+        self.wave_a_image.src = palette.png_bytes(wave_a, scale=2)
+        self.wave_a_note.value = f"{int(self.spacing_a)} px between bands"
+
+        wave_b = self._wave_b()
+        self.wave_b_image.src = palette.png_bytes(wave_b, scale=2)
+        self.wave_b_note.value = (
+            f"{int(self.spacing_b)} px  ·  {int(self.angle_b)}°"
+        )
+
+        if show_sum:
+            total = self._sum_wave()
+            self.sum_image.src = palette.png_bytes(total, scale=2)
+            self.sum_note.value = "two waves, one picture"
+            self._draw_plot(total, SUM_ACCENT,
+                            "the two waves added: bumpy, but still just waves")
+        else:
+            self.spectrum_image.src = palette.png_bytes(
+                self._spectrum_of(wave_a), scale=2)
+            self.spectrum_note.value = "one wave  →  one pair of dots"
+            self._draw_plot(wave_a, WAVE_A,
+                            "brightness rises and falls: that is all a wave is")
+
+    def _refresh_measure(self):
+        """Redraw the measured pair from the current wave A."""
+        picture = self._wave_a()
+        marked, info = self._annotated_spectrum(picture)
+
+        self.measured_stripes.src = palette.png_bytes(picture, scale=2)
+        self.measured_spectrum.src = self._rgb_png(marked)
+
+        self.measure_lines["bands"].value = f"{int(self.spacing_a)} px apart"
+        self.measure_lines["steps"].value = f"{info['radius']:.0f} steps out"
+        product = info["radius"] * self.spacing_a
+        joiner = "=" if abs(product - self.size) < 1.0 else "≈"
+        self.measure_lines["check"].value = (
+            f"{info['radius']:.0f} × {int(self.spacing_a)} {joiner} {self.size}"
+        )
+        self.measure_lines["angle"].value = (
+            f"{int(self.angle_a)}°  →  dot at {info['angle']:.0f}°"
+        )
 
     def _refresh_rebuild(self):
-        quality = self.trace.reconstruction_quality(self.coefficients)
+        quality = self.trace.reconstruction_quality(self.kept)
         self.rebuilt_image.src = palette.png_bytes(quality["image"], scale=2)
-        self.rebuilt_note.value = (
-            f"{quality['count']:,} of {self.trace.spectrum.size:,}  ·  "
-            f"{self._psnr_text(quality['psnr'])}"
-        )
-        self.quality_text.value = (
-            f"{quality['percent']:.2f}% of the coefficients hold "
-            f"{quality['energy'] * 100:.1f}% of the energy."
-        )
 
-    def _refresh_chapter_pills(self):
-        for index, pill in enumerate(self.chapter_pills):
-            active = index == self.chapter
-            done = index < self.chapter
-            pill.bgcolor = (palette.argb("26", palette.INPUT) if active
-                            else AppColors.SURFACE_DARK)
-            pill.border = ft.Border.all(
-                1, palette.INPUT if active else AppColors.BORDER_SOFT)
-            number = pill.data
-            number.bgcolor = palette.INPUT if (active or done) else None
-            number.content.color = "#0B1020" if (active or done) else palette.INPUT
+        if self.kept >= self.trace.spectrum.size:
+            self.rebuilt_note.value = f"{self.kept:,} waves  ·  exact"
+        else:
+            self.rebuilt_note.value = (
+                f"{self.kept:,} waves  ·  {quality['psnr']:.1f} dB"
+            )
 
-    @staticmethod
-    def _safe_update(control):
-        try:
-            control.update()
-        except Exception:
-            pass
+        self.rebuild_summary.value = (
+            f"{quality['count']:,} of {self.trace.spectrum.size:,} waves — "
+            f"{quality['percent']:.1f}% — carry "
+            f"{quality['energy'] * 100:.0f}% of the picture."
+        )
 
     # =========================================================
-    # USER ACTIONS
+    # ACTIONS
     # =========================================================
 
-    def toggle_play(self, e=None):
-        if self.timeline.running:
-            self.timeline.cancel()
-            self.caption_text.value = "Paused. Press Play to continue."
-            self._safe_update(self.caption)
+    def set_wave(self, which, value):
+        self.timeline.cancel()
+
+        if which == "a":
+            self.spacing_a = int(value)
+        elif which == "b":
+            self.spacing_b = int(value)
+        elif which == "angle_a":
+            self.angle_a = int(value)
+        else:
+            self.angle_b = int(value)
+
+        if self.chapter == 3:
+            # In the measuring chapter the sliders drive the measurement.
+            self._refresh_measure()
+            self._sync_labels()
+            info = peak_info(self._wave_a())
+            self.caption_text.value = (
+                f"{int(self.spacing_a)} px bands at {int(self.angle_a)}°: the dot "
+                f"sits {info['radius']:.0f} steps out, at {info['angle']:.0f}°."
+            )
+            self.safe_update(self.control)
             return
 
-        start = 0 if self.chapter >= len(CHAPTERS) - 1 else self.chapter
-        if start == 0:
-            self._apply_chapter_state(0)
-        self.timeline.start(lambda gen: self._play_from(gen, start))
-
-    def jump_to(self, chapter):
-        self.timeline.cancel()
-        self._apply_chapter_state(chapter)
-        self.timeline.start(lambda gen: self._play_from(gen, chapter))
-
-    def set_row(self, row):
-        self.timeline.cancel()
-        self.row = int(row)
-        self._move_marker()
-        self._draw_plot(show_sum=self.chapter >= 1, show_wave=self.chapter == 1)
-        self._sync_labels()
-        self.caption_text.value = (
-            f"Row {self.row}: a different line through the picture, "
-            f"a different set of waves."
-        )
-        self._safe_update(self.control)
-
-    def set_harmonics(self, value):
-        self.timeline.cancel()
-        self.harmonics = int(value)
-        self._show(self.plot_card, True)
-        self._draw_plot(show_sum=True, show_wave=True)
+        self.show(self.waves_row, True)
+        self.show(self.plot_card, True)
+        showing_sum = self.chapter == 1
+        self._refresh_waves(show_sum=showing_sum)
         self._sync_labels()
 
-        error = self.trace.row_error(self.row, self.harmonics)
-        if self.harmonics == 0:
-            message = "Zero waves: just the average brightness, a flat line."
-        elif error < 1.0:
-            message = (f"{self.harmonics} waves and the curves sit on top of each "
-                       f"other. That row *is* those waves.")
+        if which == "a":
+            self.caption_text.value = (
+                f"Wider bands mean a slower wave, and its dots sit closer to "
+                f"the centre. Now {int(self.spacing_a)} px apart."
+            )
+        elif which == "b":
+            self.caption_text.value = (
+                f"Wave B is now {int(self.spacing_b)} px apart — finer stripes, "
+                f"dots further out."
+            )
         else:
-            message = (f"{self.harmonics} waves: off by {error:.1f} and closing.")
+            self.caption_text.value = (
+                f"Turn the stripes to {int(self.angle_b)}° and their dots turn "
+                f"with them."
+            )
 
-        self.caption_text.value = message
-        self._safe_update(self.control)
+        self.safe_update(self.control)
 
-    def set_coefficients(self, value):
+    def set_kept(self, count):
         self.timeline.cancel()
-        self.coefficients = int(value)
-        self._show(self.rebuilt_card, True)
-        self._show(self.spectrum_card, True)
+        self.kept = int(count)
+        self.show(self.rebuild_row, True)
         self._refresh_rebuild()
         self._sync_labels()
 
-        quality = self.trace.reconstruction_quality(self.coefficients)
-        if np.isfinite(quality["psnr"]):
-            self.caption_text.value = (
-                f"{quality['count']:,} waves out of {self.trace.spectrum.size:,} — "
-                f"{quality['percent']:.2f}% — and the picture is already at "
-                f"{quality['psnr']:.1f} dB."
-            )
-        else:
-            self.caption_text.value = (
-                "Every wave kept, so the picture comes back exactly."
-            )
-        self._safe_update(self.control)
+        quality = self.trace.reconstruction_quality(self.kept)
+        self.caption_text.value = (
+            f"{self.kept:,} waves added together, and the planet is at "
+            f"{quality['psnr']:.1f} dB."
+            if self.kept < self.trace.spectrum.size
+            else "Every wave added: the photograph is back, exactly."
+        )
+        self.safe_update(self.control)
 
-    def _cycle_basis(self):
+    def run_check(self):
         self.timeline.cancel()
-        self._show_basis(self.basis_index + 1)
-        self._show(self.basis_card, True)
-        name, u, v, note = BASIS_EXAMPLES[self.basis_index]
-        self.caption_text.value = f"{name}: u = {u}, v = {v} — {note}."
-        self._safe_update(self.control)
+        checks = self.trace.verify()
 
-    def _cycle_pattern(self):
-        self.timeline.cancel()
-        self._show_pattern(self.pattern_index + 1)
-        self._show(self.pattern_card, True)
-        self.caption_text.value = self.patterns[self.pattern_index]["note"]
-        self._safe_update(self.control)
-
-    def _on_speed(self, e):
-        self.timeline.speed = float(e.control.value)
-        self.speed_label.value = f"{self.timeline.speed:.2f}".rstrip("0").rstrip(".") + "×"
-        self._safe_update(self.speed_label)
-
-    def stop(self):
-        self.timeline.cancel(notify=False)
-        self.play_icon.icon = ft.Icons.PLAY_ARROW_ROUNDED
-        self.play_label.value = "Play lesson"
-
-    def _on_running_changed(self, running):
-        self.play_icon.icon = (ft.Icons.PAUSE_ROUNDED if running
-                               else ft.Icons.PLAY_ARROW_ROUNDED)
-        self.play_label.value = "Pause" if running else "Play lesson"
-        self._safe_update(self.play_button)
+        self.rebuild_summary.value = (
+            "The app's own 2D DFT matches NumPy's FFT"
+            f" ({'yes' if checks['manual_matches_fft'] else 'no'}), all waves "
+            f"rebuild the picture exactly"
+            f" ({'yes' if checks['all_coefficients_rebuild_image'] else 'no'})."
+        )
+        self.caption_text.value = (
+            "Every number here comes from the app's own transform, checked "
+            "against NumPy."
+        )
+        self.safe_update(self.control)
 
     # =========================================================
     # SCENES
     # =========================================================
 
-    async def _say(self, gen, text, step=None, hold=0.0):
-        tl = self.timeline
-        self.caption.opacity = 0.0
-        tl.push(gen, self.caption)
-        await tl.wait(gen, 0.25)
-        if step is not None:
-            self.caption_step.value = step
-        self.caption_text.value = text
-        self.caption.opacity = 1.0
-        tl.push(gen, self.caption)
-        if hold:
-            await tl.wait(gen, hold)
-
-    def _step(self, chapter):
-        return f"CHAPTER {chapter + 1}  ·  {CHAPTERS[chapter].upper()}"
-
-    def _enter_chapter(self, index):
-        self.chapter = index
-        self._refresh_chapter_pills()
-        for pill in self.chapter_pills:
-            self._safe_update(pill)
-
-    async def _play_from(self, gen, chapter):
-        scenes = [
-            self._scene_row,
-            self._scene_build,
-            self._scene_direction,
-            self._scene_reading,
-            self._scene_rebuild,
-        ]
-        for index in range(chapter, len(scenes)):
-            self._enter_chapter(index)
-            await scenes[index](gen)
-            self.timeline.check(gen)
+    def scenes(self):
+        return [self._scene_one_wave, self._scene_two_waves,
+                self._scene_many_waves, self._scene_reading, self._scene_why]
 
     # ---------------- 1 ----------------
 
-    async def _scene_row(self, gen):
+    async def _scene_one_wave(self, gen):
         tl = self.timeline
 
-        self._show(self.plot_card, False)
-        self._show(self.basis_card, False)
-        self._show(self.pattern_card, False)
-        self._show(self.spectrum_card, False)
-        self._show(self.rebuilt_card, False)
+        self.show(self.wave_b_card, False)
+        self.show(self.plus_slot, False)
+        self.show(self.sum_card, False)
+        self.show(self.rebuild_row, False)
+        self.show(self.guide_row, False)
+        self.show(self.waves_row, True)
+        self.show(self.spectrum_row, True)
+        self.show(self.plot_card, True)
+        self.spacing_a = 24
+        self._refresh_waves()
+        self._sync_labels()
         tl.push(gen, self.control)
 
-        await self._say(gen, "A planet, its ring, a few stars. We are going to take "
-                             "it apart — but not into pixels this time.",
-                        self._step(0), hold=4.0)
+        await self.say(gen, "This is a wave. Not a formula — a picture of one: "
+                            "bright bands and dark bands, evenly spaced.",
+                       self.step_label(0), hold=4.6)
 
-        await self._say(gen, "Start with something simpler than a whole picture: "
-                             "one single row of it.", hold=0.4)
+        await self.say(gen, "Read one line across it and the brightness simply "
+                            "rises and falls, over and over. That is the whole "
+                            "idea of a wave.", hold=5.0)
 
-        self.row = self.trace.busiest_row()
-        self._move_marker()
-        self.row_marker.opacity = 1.0
-        tl.push(gen, self.scene_card)
-        await tl.wait(gen, 1.6)
+        await self.say(gen, f"Two numbers describe it completely: how far apart "
+                            f"the bands are ({int(self.spacing_a)} px here) and "
+                            f"which way they run.", hold=5.0)
 
-        self.harmonics = 0
-        self._draw_plot(show_sum=False)
-        self._show(self.plot_card, True)
-        tl.push(gen, self.control)
-        await tl.wait(gen, 1.8)
+        await self.say(gen, "And here is the useful part. A wave's spectrum is "
+                            "almost empty: one wave makes exactly one pair of "
+                            "bright dots.", hold=5.0)
 
-        await self._say(gen, f"Row {self.row}, drawn as a graph: dark background, "
-                             f"the bright ring, the planet's shading. Just a wiggly "
-                             f"line of {self.trace.size} numbers.", hold=4.8)
+        for spacing in (36, 12, 6, 24):
+            self.spacing_a = spacing
+            self._refresh_waves()
+            self._sync_labels()
+            tl.push(gen, self.control)
+            await self.say(gen, f"{spacing} px between bands — watch the dots move "
+                                f"{'outward' if spacing < 24 else 'inward'}.",
+                           hold=2.8)
 
-        await self._say(gen, "Here is the claim: that wiggle is nothing more than "
-                             "smooth waves added together. Let's prove it.", hold=4.2)
+        await self.say(gen, "Closer stripes push the dots further from the centre. "
+                            "That single rule is most of what a spectrum means.",
+                       hold=5.0)
 
     # ---------------- 2 ----------------
 
-    async def _scene_build(self, gen):
+    async def _scene_two_waves(self, gen):
         tl = self.timeline
 
-        await self._say(gen, "Start with no waves at all — just the average "
-                             "brightness of the row.", self._step(1), hold=0.4)
-
-        self.harmonics = 0
-        self._draw_plot(show_sum=True, show_wave=False)
+        self.show(self.spectrum_row, False)
+        self.show(self.wave_b_card, True)
+        self.show(self.plus_slot, True)
+        self.show(self.sum_card, True)
+        self.spacing_b = 10
+        self.angle_b = 90
+        self._refresh_waves(show_sum=True)
         self._sync_labels()
         tl.push(gen, self.control)
-        await tl.wait(gen, 2.2)
 
-        await self._say(gen, "A flat line. Now add the slowest wave: one single "
-                             "rise and fall across the whole row.", hold=0.4)
+        await self.say(gen, "Now take a second wave: finer stripes, turned "
+                            "sideways.", self.step_label(1), hold=4.0)
 
-        for harmonic in range(1, 4):
-            self.harmonics = harmonic
-            self._draw_plot(show_sum=True, show_wave=True)
+        await self.say(gen, "Add the two pictures together, pixel by pixel. Bright "
+                            "plus bright makes brighter, bright plus dark cancels "
+                            "out.", hold=5.0)
+
+        await self.say(gen, "The result already looks like a woven texture — and "
+                            "neither wave was lost. Both are still in there.",
+                       hold=5.0)
+
+        for spacing, angle in ((6, 90), (16, 45), (10, 90)):
+            self.spacing_b = spacing
+            self.angle_b = angle
+            self._refresh_waves(show_sum=True)
             self._sync_labels()
-            tl.push(gen, self.plot_card, self.harmonic_text)
-            await tl.wait(gen, 1.6)
+            tl.push(gen, self.control)
+            await self.say(gen, f"Change wave B to {spacing} px at {angle}° and the "
+                                f"pattern changes with it.", hold=3.2)
 
-        await self._say(gen, "Amber is the wave being added, blue is everything so "
-                             "far. Each new wave is faster than the last, and fixes "
-                             "detail the earlier ones were too slow to catch.",
-                        hold=5.0)
-
-        for harmonic in range(4, 25):
-            self.harmonics = harmonic
-            self._draw_plot(show_sum=True, show_wave=True)
-            self._sync_labels()
-            tl.push(gen, self.plot_card, self.harmonic_text)
-            await tl.wait(gen, 0.22)
-
-        await tl.wait(gen, 1.0)
-        error = self.trace.row_error(self.row, self.harmonics)
-        await self._say(gen, f"Twenty-four waves and the blue curve is within "
-                             f"{error:.1f} of the real row.", hold=3.6)
-
-        full = self.trace.size // 2
-        for harmonic in range(25, full + 1, 2):
-            self.harmonics = harmonic
-            self._draw_plot(show_sum=True, show_wave=False)
-            self._sync_labels()
-            tl.push(gen, self.plot_card, self.harmonic_text)
-            await tl.wait(gen, 0.12)
-
-        self.harmonics = full
-        self._draw_plot(show_sum=True, show_wave=False)
-        tl.push(gen, self.plot_card)
-
-        await self._say(gen, f"With all {full}, the two curves are identical — the "
-                             f"error is exactly zero. The row was never anything "
-                             f"but a sum of waves.", hold=5.0)
+        await self.say(gen, "Two waves give a pattern. The obvious question is how "
+                            "far this goes.", hold=4.2)
 
     # ---------------- 3 ----------------
 
-    async def _scene_direction(self, gen):
+    async def _scene_many_waves(self, gen):
         tl = self.timeline
 
-        self._show(self.plot_card, False)
-        self._show_basis(1)
-        self._show(self.basis_card, True)
+        self.show(self.waves_row, False)
+        self.show(self.plot_card, False)
+        self.show(self.spectrum_row, False)
+        self.show(self.rebuild_row, True)
         tl.push(gen, self.control)
 
-        await self._say(gen, "A picture has two directions, so its waves need a "
-                             "direction too.", self._step(2), hold=3.4)
+        await self.say(gen, "All the way. Any photograph is a stack of these "
+                            "stripe patterns, added together.",
+                       self.step_label(2), hold=4.6)
 
-        for index in range(len(BASIS_EXAMPLES)):
-            self._show_basis(index)
-            tl.push(gen, self.basis_card)
+        for count in REBUILD_STEPS:
+            self.kept = count
+            self._refresh_rebuild()
+            self._sync_labels()
+            tl.push(gen, self.control)
 
-            name, u, v, note = BASIS_EXAMPLES[index]
-            await self._say(gen, f"{name}: {note}.", hold=3.4)
+            quality = self.trace.reconstruction_quality(count)
+            if count == 1:
+                text = "One wave: a flat grey square. Not much of a planet yet."
+            elif count <= 20:
+                text = (f"{count} waves and there is a blob in roughly the right "
+                        f"place.")
+            elif count <= 600:
+                text = (f"{count} waves: the ring appears — "
+                        f"{quality['psnr']:.1f} dB.")
+            elif count < self.trace.spectrum.size:
+                text = (f"{count:,} waves, and it is hard to tell from the "
+                        f"original.")
+            else:
+                text = "All 9,216, and it is the original, exactly."
 
-        await self._say(gen, "Notice where each one sits in the spectrum. Close to "
-                             "the centre means a slow, wide wave. Far out means "
-                             "fine detail. The direction of the dots matches the "
-                             "tilt of the stripes.", hold=5.4)
+            await self.say(gen, text, hold=3.4)
+
+        await self.say(gen, "That is the claim, and you just watched it happen: "
+                            "the photograph was never anything but waves.",
+                       hold=5.0)
 
     # ---------------- 4 ----------------
 
     async def _scene_reading(self, gen):
         tl = self.timeline
 
-        self._show(self.basis_card, False)
-        self._show_pattern(0)
-        self._show(self.pattern_card, True)
-        self._show(self.spectrum_card, True)
+        self.show(self.rebuild_row, False)
+        self.show(self.spectrum_row, False)
+        self.show(self.compare_row, False)
+        self.show(self.guide_row, True)
+
+        self.spacing_a = 24
+        self.angle_a = 0
+        self._refresh_measure()
+        self._sync_labels()
         tl.push(gen, self.control)
 
-        await self._say(gen, "Now read a spectrum properly — starting with pictures "
-                             "whose answer you can guess.", self._step(3), hold=3.4)
+        await self.say(gen, "One dot, measured properly. The cross marks the "
+                            "centre; the ring marks the dot; the line between "
+                            "them is what we are measuring.",
+                       self.step_label(3), hold=5.4)
 
-        for index in range(len(self.patterns)):
-            self._show_pattern(index)
-            tl.push(gen, self.pattern_card)
+        await self.say(gen, "Count the line in steps, where one step means one "
+                            "stripe across the whole picture. Right now the dot "
+                            "is 4 steps out, and the bands are 24 px apart.",
+                       hold=5.6)
 
-            item = self.patterns[index]
-            if item["name"] == "Fine stripes":
-                text = ("Halve the spacing and the two dots move twice as far out. "
-                        "Distance from the centre is fineness, nothing else.")
-            elif item["name"] == "Tilted stripes":
-                text = ("Rotate the picture and the whole spectrum rotates with it. "
-                        "That single fact is how texture orientation is measured.")
-            elif item["name"] == "The planet":
-                text = ("A real picture is all of them at once: bright at the "
-                        "centre, because most of an image is smooth, with a faint "
-                        "haze further out for the edges.")
-            else:
-                text = ("Wide stripes: one spacing, one direction, so the spectrum "
-                        "is two dots near the centre and almost nothing else.")
+        await self.say(gen, f"4 × 24 = {self.size}, the width of the picture. "
+                            f"That is not a coincidence: 4 steps *means* four "
+                            f"stripes fit across, so each one is a quarter of "
+                            f"the width.", hold=6.0)
 
-            await self._say(gen, text, hold=4.8)
+        # Halve the spacing twice; the number doubles each time.
+        for spacing in (12, 6):
+            self.spacing_a = spacing
+            self._refresh_measure()
+            self._sync_labels()
+            tl.push(gen, self.control)
 
-        await self._say(gen, "Centre is the average, distance is fineness, "
-                             "direction is orientation, brightness is how much. "
-                             "That is the whole alphabet.", hold=5.0)
+            info = peak_info(self._wave_a())
+            await self.say(gen, f"Halve the bands to {spacing} px and the dot "
+                                f"doubles its distance: {info['radius']:.0f} steps. "
+                                f"{info['radius']:.0f} × {spacing} is still "
+                                f"{self.size}.", hold=5.2)
+
+        self.show(self.compare_row, True)
+        tl.push(gen, self.control)
+        await self.say(gen, "All three together: finer stripes, dot further out. "
+                            "Nothing to judge by eye — the number is written "
+                            "under each one.", hold=5.2)
+
+        # Now the second reading: direction.
+        self.spacing_a = 12
+        for angle in (0, 45, 90):
+            self.angle_a = angle
+            self._refresh_measure()
+            self._sync_labels()
+            tl.push(gen, self.control)
+
+            info = peak_info(self._wave_a())
+            await self.say(gen, f"Turn the stripes to {angle}° and the dot turns "
+                                f"to {info['angle']:.0f}°. The dot always points "
+                                f"the way the stripes run.", hold=4.4)
+
+        self.angle_a = 0
+        self._refresh_measure()
+        self._sync_labels()
+        self.show(self.compare_row, False)
+        self.show(self.spectrum_row, True)
+        self.spectrum_image.src = palette.png_bytes(self.trace.spectrum_image,
+                                                    scale=2)
+        self.spectrum_note.value = "thousands of dots, all at once"
+        tl.push(gen, self.control)
+
+        await self.say(gen, "So a photograph's spectrum is just thousands of those "
+                            "measurements at once, each dot one stripe pattern.",
+                       hold=5.2)
+
+        await self.say(gen, "Bright in the middle means mostly wide, gentle "
+                            "shading. The faint haze further out is the edges: "
+                            "fewer of those, but they are what makes it sharp.",
+                       hold=5.8)
 
     # ---------------- 5 ----------------
 
-    async def _scene_rebuild(self, gen):
+    async def _scene_why(self, gen):
         tl = self.timeline
 
-        self._show(self.pattern_card, False)
-        self._show(self.spectrum_card, True)
-        self._show(self.rebuilt_card, True)
+        self.show(self.guide_row, False)
+        self.show(self.rebuild_row, True)
+        self.kept = 100
+        self._refresh_rebuild()
+        self._sync_labels()
         tl.push(gen, self.control)
 
-        await self._say(gen, "Back to the planet, and the same trick as the row — "
-                             "now in two dimensions.", self._step(4), hold=3.4)
+        await self.say(gen, "Once a picture is a list of waves, editing the list "
+                            "edits the picture. That is the whole frequency side "
+                            "of this app.", self.step_label(4), hold=5.4)
 
-        for count in COEFFICIENT_STEPS:
-            self.coefficients = count
-            self._refresh_rebuild()
-            self._sync_labels()
-            tl.push(gen, self.rebuilt_card, self.coefficient_text, self.quality_text)
+        await self.say(gen, "Keep only the waves near the centre and you have "
+                            "thrown away the detail: that is a blur.", hold=4.8)
 
-            quality = self.trace.reconstruction_quality(count)
-            if count == 1:
-                text = ("One single wave — the average brightness. A flat grey "
-                        "square.")
-            elif count <= 20:
-                text = (f"{count} waves: the planet is a blob, but it is in the "
-                        f"right place.")
-            elif count <= 400:
-                text = (f"{count} waves, {quality['percent']:.1f}% of the total, and "
-                        f"the ring has appeared: {self._psnr_text(quality['psnr'])}.")
-            elif count < self.trace.spectrum.size:
-                text = (f"{count:,} waves — {quality['percent']:.1f}% — holding "
-                        f"{quality['energy'] * 100:.1f}% of the energy at "
-                        f"{self._psnr_text(quality['psnr'])}.")
-            else:
-                text = "All of them, and the original is back exactly."
+        await self.say(gen, "Keep only the ones far out and you are left with the "
+                            "edges.", hold=4.2)
 
-            await self._say(gen, text, hold=3.4)
+        quality = self.trace.reconstruction_quality(100)
+        await self.say(gen, f"Keep only the strongest few and you have compression: "
+                            f"100 waves out of {self.trace.spectrum.size:,} already "
+                            f"carry {quality['energy'] * 100:.0f}% of this picture.",
+                       hold=5.6)
 
-        hundred = self.trace.reconstruction_quality(100)
-        await self._say(gen, f"That is the fact the whole frequency side lives on: "
-                             f"{hundred['percent']:.1f}% of the waves carry "
-                             f"{hundred['energy'] * 100:.0f}% of the picture.",
-                        hold=5.0)
-
-        await self._say(gen, "Keep only the strong ones and you have compression. "
-                             "Keep the slow ones and you have blur. Keep the fast "
-                             "ones and you have edges. Every frequency feature is "
-                             "a different way of choosing.", hold=5.6)
+        await self.say(gen, "Filtering, hybrids, compression, texture, colour — "
+                            "every one of them is a different way of choosing from "
+                            "the same list.", hold=5.2)
