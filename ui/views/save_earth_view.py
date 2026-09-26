@@ -61,13 +61,6 @@ TOOL_ICONS = {
     "color": "PALETTE",
 }
 
-# Where a player should go to relearn what a challenge tests.
-DISCOVER_ROUTES = {
-    "noise": ("learn_noise", "Noise lesson"),
-    "edges": ("learn_convolution", "Convolution lesson"),
-    "wiener": ("learn_restore", "Restoration lesson"),
-}
-
 ANGER_COLORS = (AppColors.GREEN_LIGHT, AppColors.ORANGE, AppColors.RED, AppColors.RED)
 
 
@@ -291,7 +284,7 @@ class SaveEarthView:
                                     color=AppColors.TEXT_SECONDARY, width=260),
                             ft.Text(verdict.outcome.value.upper(), size=11, weight=ft.FontWeight.BOLD,
                                     color=outcome_color, width=80),
-                            ft.Text(f"Best: {ch.tool.name} · {ch.best_option} ({_db(ch.scores[ch.best_option])})",
+                            ft.Text(f"Best: {ch.tool.name} · {ch.best_option} ({self._best_note(ch)})",
                                     size=11, color=AppColors.MUTED),
                         ],
                     ),
@@ -388,8 +381,18 @@ class SaveEarthView:
             self._show_ending()
 
     def _open_discover(self, route_key):
-        if self.on_open_discover:
+        if not self.on_open_discover:
+            return
+        try:
             self.on_open_discover(route_key)
+        except Exception:
+            pass  # unknown route: stay in the game rather than crash
+
+    @staticmethod
+    def _best_note(ch):
+        if ch.mode == "choice":
+            return ch.answer_note.rstrip(".")
+        return _db(ch.scores[ch.best_option])
 
     # =========================================================
     # PIECES
@@ -458,17 +461,21 @@ class SaveEarthView:
             ]),
             ft.Text(verdict.message, size=13, color=color),
         ]
-        if verdict.psnr is not None:
+        if verdict.psnr is not None and ch.mode != "choice":
             target = "their target" if ch.mode == "match" else "the original"
             controls.append(ft.Text(
                 f"Signal quality vs {target}: {_db(verdict.psnr)}   (needed ≥ {ch.pass_db:.2f} dB)",
                 size=11, color=AppColors.TEXT_SECONDARY,
             ))
+        if ch.mode == "choice" and verdict.round_over and ch.answer_note:
+            controls.append(ft.Text(ch.answer_note, size=11, color=AppColors.TEXT_SECONDARY))
         if sent_image is not None:
-            controls.append(self._image_box(sent_image, "What you sent"))
+            caption = ("The spectrum you read the answer from" if ch.mode == "choice"
+                       else "What you sent")
+            controls.append(self._image_box(sent_image, caption))
         if verdict.hint:
             controls.append(ft.Text(verdict.hint, size=12, color=AppColors.TEXT_SECONDARY))
-            route = DISCOVER_ROUTES.get(ch.id)
+            route = ch.discover_route
             if route and self.on_open_discover:
                 key, label = route
                 controls.append(

@@ -1,8 +1,9 @@
 """SaveEarth game session (no UI code here).
 
 Rules:
-  * Always 5 rounds. Every tool type appears at least once, no puzzle
-    variant repeats, and the same tool never appears twice in a row.
+  * Always 5 rounds, each with a DIFFERENT tool, mixing at least 2 spatial
+    and 2 frequency tools. Each tool has several puzzle variants, so
+    repeated games stay fresh.
   * Wrong tool                          -> strike, next round.
   * Right tool, option below the bar    -> one free retry per round;
                                            failing the retry is a strike.
@@ -24,6 +25,8 @@ import numpy as np
 from game.challenges import CHALLENGE_BUILDERS, CHALLENGE_VARIANTS, Challenge
 from game.scene import make_space_scene
 from game.tools import TOOLS_BY_ID
+
+MIN_PER_DOMAIN = 2
 
 MAX_STRIKES = 3
 DEFAULT_ROUNDS = 5
@@ -135,23 +138,27 @@ class GameSession:
 def plan_rounds(rng: np.random.Generator, rounds: int = DEFAULT_ROUNDS) -> list[tuple[str, str]]:
     """Choose (challenge type, variant) pairs for one game.
 
-    Every type at least once, no pair repeated, no type twice in a row.
+    Every round uses a different tool; at least MIN_PER_DOMAIN spatial and
+    MIN_PER_DOMAIN frequency tools (when that many exist); one random
+    variant per tool.
     """
-    pairs = [(cid, v) for cid, variants in CHALLENGE_VARIANTS.items() for v in variants]
-    if rounds > len(pairs):
-        raise ValueError(f"Only {len(pairs)} distinct puzzles exist; cannot fill {rounds} rounds.")
+    types = list(CHALLENGE_VARIANTS)
+    if rounds > len(types):
+        raise ValueError(f"Only {len(types)} tools have challenges; cannot fill {rounds} rounds.")
 
-    for _ in range(200):
-        chosen = []
-        for cid, variants in CHALLENGE_VARIANTS.items():                 # one of each type
-            chosen.append((cid, str(rng.choice(variants))))
-        remaining = [p for p in pairs if p not in chosen]
-        extra = rng.choice(len(remaining), size=max(0, rounds - len(chosen)), replace=False)
-        chosen += [remaining[i] for i in extra]
-        order = [chosen[i] for i in rng.permutation(len(chosen))][:rounds]
-        if all(order[i][0] != order[i + 1][0] for i in range(len(order) - 1)):
-            return order
-    return order  # practically unreachable; falls back to the last shuffle
+    by_domain: dict[str, list[str]] = {}
+    for cid in types:
+        by_domain.setdefault(TOOLS_BY_ID[cid].domain, []).append(cid)
+
+    chosen: list[str] = []
+    for members in by_domain.values():                       # guaranteed share per domain
+        take = min(MIN_PER_DOMAIN, len(members), rounds - len(chosen))
+        chosen += [str(c) for c in rng.choice(members, size=take, replace=False)]
+    rest = [c for c in types if c not in chosen]             # fill the remaining rounds
+    chosen += [str(c) for c in rng.choice(rest, size=rounds - len(chosen), replace=False)]
+
+    order = [chosen[i] for i in rng.permutation(len(chosen))]
+    return [(cid, str(rng.choice(CHALLENGE_VARIANTS[cid]))) for cid in order]
 
 
 def build_session(seed: int | None = None, rounds: int = DEFAULT_ROUNDS) -> GameSession:
