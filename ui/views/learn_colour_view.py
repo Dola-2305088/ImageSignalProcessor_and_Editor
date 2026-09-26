@@ -27,6 +27,9 @@ from ui.theme import AppColors
 
 PANEL = 188
 MINI = 128
+# Smaller tiles in the three-up comparison, so all six pictures fit
+# on one line.
+EXPERIMENT_MINI = 104
 
 SOURCE_ACCENT = palette.INPUT
 LUMA_ACCENT = "#FBBF24"
@@ -136,9 +139,16 @@ class LearnColourView(LessonShell):
         )
 
         # ---- the fair experiment ----
+        # One line, three block sizes. Wrapping used to push 4x4 and
+        # 8x8 onto their own rows, which loses the comparison the
+        # chapter is making.
         self.experiment_row = ft.Row(
             alignment=ft.MainAxisAlignment.CENTER,
-            wrap=True, spacing=12, run_spacing=12, controls=[],
+            vertical_alignment=ft.CrossAxisAlignment.START,
+            wrap=False,
+            scroll=ft.ScrollMode.AUTO,
+            spacing=14,
+            controls=[],
         )
         self.experiment_card = ft.Container(
             opacity=0.0,
@@ -190,28 +200,45 @@ class LearnColourView(LessonShell):
         )
 
     def _show_experiment(self, factors=(2, 4, 8)):
+        """The three block sizes, side by side on one line."""
         cards = []
         for row in self.trace.comparison(factors):
-            cards.append(ft.Column(
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                spacing=6,
-                controls=[
-                    ft.Text(f"{row['factor']}×{row['factor']} blocks", size=10,
-                            weight=ft.FontWeight.BOLD, color=AppColors.TEXT),
-                    ft.Row(
-                        spacing=8,
-                        controls=[
-                            self._labelled(row["chroma"]["image"], "colour spoiled",
-                                           row["chroma"]["psnr"], CHROMA_ACCENT),
-                            self._labelled(row["luma"]["image"], "brightness spoiled",
-                                           row["luma"]["psnr"], LUMA_ACCENT),
-                        ],
-                    ),
-                ],
+            cards.append(ft.Container(
+                # A fixed box per block size keeps the three columns
+                # the same width and stops any of them wrapping away.
+                width=2 * EXPERIMENT_MINI + 34,
+                padding=10,
+                border_radius=14,
+                bgcolor=AppColors.SURFACE_DARK,
+                border=ft.Border.all(1, AppColors.BORDER_SOFT),
+                content=ft.Column(
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    spacing=7,
+                    controls=[
+                        ft.Text(f"{row['factor']}×{row['factor']} blocks", size=10,
+                                weight=ft.FontWeight.BOLD, color=AppColors.TEXT),
+                        ft.Row(
+                            alignment=ft.MainAxisAlignment.CENTER,
+                            spacing=8,
+                            controls=[
+                                self._labelled(row["chroma"]["image"],
+                                               "colour spoiled",
+                                               row["chroma"]["psnr"],
+                                               CHROMA_ACCENT,
+                                               EXPERIMENT_MINI),
+                                self._labelled(row["luma"]["image"],
+                                               "brightness spoiled",
+                                               row["luma"]["psnr"],
+                                               LUMA_ACCENT,
+                                               EXPERIMENT_MINI),
+                            ],
+                        ),
+                    ],
+                ),
             ))
         self.experiment_row.controls = cards
 
-    def _labelled(self, array, label, psnr, accent):
+    def _labelled(self, array, label, psnr, accent, size=MINI):
         return ft.Column(
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             spacing=4,
@@ -219,7 +246,7 @@ class LearnColourView(LessonShell):
                 ft.Container(
                     border_radius=10,
                     border=ft.Border.all(1.2, palette.argb("77", accent)),
-                    content=self._picture(array, MINI),
+                    content=self._picture(array, size),
                 ),
                 ft.Text(label, size=9, color=accent),
                 ft.Text(f"{psnr:.1f} dB", **mono(10, accent)),
