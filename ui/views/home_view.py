@@ -7,6 +7,7 @@ import flet.canvas as fc
 
 from ui.theme import AppAnimations, AppColors
 from ui.app_preferences import WORKSPACE_OPTIONS
+from ui.components.sidebar import route_index
 
 GALAXY_IMAGE = "images/Nasa2.jpg"
 AETHERIS_ORBIT_LOGO = "images/logo.png"
@@ -37,6 +38,161 @@ DEMO_PROJECTS = [
     },
 ]
 
+# ============================================================
+# APP MODES (Home hero)
+# ============================================================
+# Each card has a rotating "comet" of light travelling around its border.
+# rim: resting border colour; tint: icon badge fill.
+MODE_CARDS = [
+    {
+        "key": "explore",
+        "title": "Explore",
+        "tag": "EDIT",
+        "subtitle": "Open your image and apply 12+ tools",
+        "icon": ft.Icons.EXPLORE_OUTLINED,
+        "route": "blur_sharpen",
+        "accent": "#7D8CFF",
+        "accent_2": "#A65CF6",
+        "rim": "#34406A",
+        "tint": "#1D2450",
+    },
+    {
+        "key": "discover",
+        "title": "Discover",
+        "tag": "LEARN",
+        "subtitle": "Watch convolution and Fourier come alive",
+        "icon": ft.Icons.AUTO_STORIES_OUTLINED,
+        "route": "learn_convolution",
+        "accent": "#FBBF24",
+        "accent_2": "#F472B6",
+        "rim": "#4B402A",
+        "tint": "#2A2110",
+    },
+    {
+        "key": "save_earth",
+        "title": "SaveEarth",
+        "tag": "PLAY",
+        "subtitle": "A mini-game where processing saves the planet",
+        "icon": ft.Icons.PUBLIC,
+        "route": "save_earth",
+        "accent": "#34D399",
+        "accent_2": "#22D3EE",
+        "rim": "#24493F",
+        "tint": "#0D2A24",
+    },
+]
+
+# Three cards sitting side by side under the headline, as in the
+# reference layout: tall enough for a two-line description.
+MODE_CARD_WIDTH = 226
+MODE_CARD_HEIGHT = 88
+MODE_BORDER_WIDTH = 1.6
+MODE_IDLE_SPEED = 0.55        # radians/sec the border light travels at rest
+MODE_HOVER_SPEED = 2.1        # ...and while the pointer is over the card
+MODE_UPDATE_INTERVAL = 0.04   # ~25fps is plenty for a border shimmer
+
+
+def _argb(alpha_hex: str, color: str) -> str:
+    """Flet hex colours are #AARRGGBB; prepend an alpha to #RRGGBB."""
+    return "#" + alpha_hex + color.lstrip("#")
+
+
+# Headline palette: the same violet -> blue -> cyan sweep the orbit
+# nodes use, so the titles read as part of the galaxy rather than as
+# plain white text dropped on top of it.
+HEADLINE_COLORS = ["#C4B5FD", "#8FA6FF", "#5BE7F0"]
+HEADLINE_SOFT = ["#6E7FA8", "#8894C4", "#6FA9C6"]
+GREETING_COLORS = ["#F3D7FF", "#A9BBFF", "#7FE9E1"]
+
+
+def _mix(color_a, color_b, amount):
+    """Blend two #RRGGBB colours."""
+    amount = max(0.0, min(1.0, float(amount)))
+    a = color_a.lstrip("#")
+    b = color_b.lstrip("#")
+
+    parts = []
+    for i in (0, 2, 4):
+        start = int(a[i:i + 2], 16)
+        end = int(b[i:i + 2], 16)
+        parts.append(round(start + (end - start) * amount))
+
+    return "#{:02X}{:02X}{:02X}".format(*parts)
+
+
+def _ramp_color(colors, position):
+    """Colour at 0..1 along a list of stops."""
+    if len(colors) == 1:
+        return colors[0]
+
+    span = 1.0 / (len(colors) - 1)
+    index = min(int(position / span), len(colors) - 2)
+    local = (position - index * span) / span
+
+    return _mix(colors[index], colors[index + 1], local)
+
+
+HIGHLIGHT_COLOR = "#FFFFFF"
+SHIMMER_WIDTH = 0.16        # how wide the travelling light is, 0..1 of the line
+SHIMMER_SPEED = 0.30        # sweeps per second
+HEADLINE_UPDATE_INTERVAL = 0.05
+
+
+def _shimmer_spans(value, colors, phase, weightings=None):
+    """Colour ramp with a band of light travelling along it.
+
+    Each character gets its ramp colour, brightened towards white by how
+    close it is to the moving highlight. Only ordinary text colours are
+    used, so nothing here depends on renderer support for paints.
+    """
+    characters = list(value)
+    last = max(1, len(characters) - 1)
+    spans = []
+
+    for index, character in enumerate(characters):
+        position = index / last
+        base = _ramp_color(colors, position)
+
+        # Distance to the highlight, wrapped so it re-enters from the left.
+        distance = abs(((position - phase + 0.5) % 1.0) - 0.5)
+        glow = max(0.0, 1.0 - distance / SHIMMER_WIDTH) ** 2
+
+        style = ft.TextStyle(color=_mix(base, HIGHLIGHT_COLOR, 0.85 * glow))
+        if weightings is not None:
+            style = ft.TextStyle(
+                color=_mix(base, HIGHLIGHT_COLOR, 0.85 * glow),
+                weight=weightings(index, len(characters)),
+            )
+
+        spans.append(ft.TextSpan(character, style))
+
+    return spans
+
+
+def _gradient_text(value, size, colors, width=None, weight=ft.FontWeight.BOLD,
+                   spacing=0.0):
+    """A colour ramp across a line of text, one span per character.
+
+    An earlier version painted the text with a gradient Paint as the
+    TextStyle foreground. Flutter supports that, but this Flet build
+    does not render it -- and a failed paint takes the whole page down,
+    not just the label. Per-character spans give the same sweep using
+    nothing but ordinary text colours, which cannot fail.
+    """
+    characters = list(value)
+    last = max(1, len(characters) - 1)
+
+    spans = [
+        ft.TextSpan(
+            character,
+            ft.TextStyle(color=_ramp_color(colors, index / last)),
+        )
+        for index, character in enumerate(characters)
+    ]
+
+    return ft.Text(spans=spans, size=size, weight=weight)
+
+
 # Orbit tuning
 ORBIT_FRAME_INTERVAL = 0.02          # ~50fps target
 ORBIT_ANGULAR_SPEED = 0.28           # radians/sec, independent of frame rate
@@ -44,11 +200,18 @@ ORBIT_GLOW_SPEED = 1.6               # breathing speed of the center glow
 ORBIT_TRANSITION_MS = int(ORBIT_FRAME_INTERVAL * 1000 * 2.4)  # slight overlap smooths jitter/frame drops
 ORBIT_ASPECT = 0.66                  # gives the AETHERIS mark enough vertical breathing room
 
+# The orbit is sized to the left column (headline + one row of cards),
+# so the hero is exactly as tall as its contents.
+ORBIT_W, ORBIT_H = 470, 236
+ORBIT_CX, ORBIT_CY = ORBIT_W / 2, ORBIT_H / 2
+ORBIT_RADIUS = 126
+ORBIT_RINGS = (66, 96, ORBIT_RADIUS)
+
 # Compact center hub. Keeping the hub comfortably smaller than the outer
 # feature path makes the six feature bubbles visibly orbit around it.
-CENTER_HUB_SIZE = 110
-CENTER_LOGO_SIZE = 120
-CENTER_GLOW_SIZE = 100
+CENTER_HUB_SIZE = 96
+CENTER_LOGO_SIZE = 104
+CENTER_GLOW_SIZE = 88
 
 # Same six accent colors used by the orbit nodes below, so the center mark
 # reads as "built from" the six operations orbiting it.
@@ -155,6 +318,18 @@ class HomeView:
         self._workflow_tracks = []
         self._workflow_elapsed = 0.0
 
+        # Home mode cards (Explore / Discover / SaveEarth). Their border
+        # light is advanced by the same Home animation loop as the orbit.
+        self._mode_states = []
+        self._mode_column = None
+        self._mode_update_accum = 0.0
+
+        # Headline shimmer: a band of light that keeps travelling through
+        # the greeting and the hero title, driven by the same loop.
+        self._headlines = []
+        self._headline_phase = 0.0
+        self._headline_accum = 0.0
+
         # Seconds spent travelling from one processing stage to the next.
         # A full cycle is intentionally slow and fluid instead of "blinking".
         self._workflow_segment_seconds = 0.95
@@ -162,11 +337,28 @@ class HomeView:
 
         # Live header values. These keep the approved Home UI unchanged while
         # allowing Settings to update what the user actually sees.
+        # "Good evening," stays quiet; the name carries the colour.
+        self.greeting_prefix = ft.Text(
+            self._greeting_period() + ",",
+            size=24,
+            weight=ft.FontWeight.W_500,
+            color=AppColors.TEXT_SECONDARY,
+        )
         self.greeting_text = ft.Text(
-            self._greeting_value(),
-            size=27,
+            spans=_shimmer_spans(self._display_name(), GREETING_COLORS, 0.0),
+            size=31,
             weight=ft.FontWeight.BOLD,
-            color=AppColors.TEXT,
+        )
+        self.greeting_badge_icon = ft.Icon(
+            self._greeting_icon(),
+            size=13,
+            color=self._greeting_accent(),
+        )
+        self.greeting_date_text = ft.Text(
+            datetime.now().strftime("%a %d %b  ·  %I:%M %p").lstrip("0"),
+            size=9,
+            weight=ft.FontWeight.W_600,
+            color=AppColors.TEXT_SECONDARY,
         )
         self.workspace_name_text = ft.Text(
             self._workspace_name(),
@@ -176,6 +368,10 @@ class HomeView:
             overflow=ft.TextOverflow.ELLIPSIS,
         )
         self.workspace_menu = self._build_workspace_menu()
+
+        self._register_headline(
+            self.greeting_text, self._display_name(), GREETING_COLORS, speed=1.0
+        )
 
         self.session_name_text = ft.Text("No active image", size=9, color=AppColors.MUTED)
         self.control = self._build()
@@ -187,15 +383,79 @@ class HomeView:
         workspace = getattr(self.profile, "workspace", None) or "Default"
         return workspace if workspace in WORKSPACE_OPTIONS else "Default"
 
-    def _greeting_value(self):
+    def _register_headline(self, control, value, colors, speed=1.0):
+        """Track a text so the shimmer loop can re-colour it."""
+        self._headlines.append(
+            {"control": control, "value": value, "colors": colors, "speed": speed}
+        )
+        return control
+
+    def _advance_headlines(self, dt):
+        if not self._headlines:
+            return
+
+        self._headline_phase = (self._headline_phase + SHIMMER_SPEED * dt) % 1.0
+
+        self._headline_accum += dt
+        if self._headline_accum < HEADLINE_UPDATE_INTERVAL:
+            return
+        self._headline_accum = 0.0
+
+        for item in self._headlines:
+            phase = (self._headline_phase * item["speed"]) % 1.0
+            item["control"].spans = _shimmer_spans(
+                item["value"], item["colors"], phase
+            )
+
+            try:
+                item["control"].update()
+            except Exception:
+                pass
+
+    @staticmethod
+    def _set_ramp_text(control, value, colors):
+        """Re-colour a span-based Text in place (used when the name changes)."""
+        characters = list(value)
+        last = max(1, len(characters) - 1)
+
+        control.spans = [
+            ft.TextSpan(
+                character,
+                ft.TextStyle(color=_ramp_color(colors, index / last)),
+            )
+            for index, character in enumerate(characters)
+        ]
+
+    @staticmethod
+    def _greeting_period():
         hour = datetime.now().hour
         if 5 <= hour < 12:
-            period = "Good morning"
-        elif 12 <= hour < 17:
-            period = "Good afternoon"
-        else:
-            period = "Good evening"
-        return f"{period}, {self._display_name()}"
+            return "Good morning"
+        if 12 <= hour < 17:
+            return "Good afternoon"
+        return "Good evening"
+
+    @staticmethod
+    def _greeting_icon():
+        hour = datetime.now().hour
+        if 5 <= hour < 12:
+            return ft.Icons.WB_TWILIGHT
+        if 12 <= hour < 17:
+            return ft.Icons.LIGHT_MODE_OUTLINED
+        return ft.Icons.NIGHTLIGHT_OUTLINED
+
+    @staticmethod
+    def _greeting_accent():
+        hour = datetime.now().hour
+        if 5 <= hour < 12:
+            return "#FBBF24"
+        if 12 <= hour < 17:
+            return "#7FE9E1"
+        return "#A9BBFF"
+
+    def _greeting_value(self):
+        """Kept for compatibility: the full one-line greeting."""
+        return f"{self._greeting_period()}, {self._display_name()}"
 
     def _build_workspace_menu(self):
         current = self._workspace_name()
@@ -226,7 +486,18 @@ class HomeView:
     def set_profile(self, profile, refresh=True):
         """Refresh the visible Home identity without rebuilding the page."""
         self.profile = profile
-        self.greeting_text.value = self._greeting_value()
+        self.greeting_prefix.value = self._greeting_period() + ","
+        for item in self._headlines:
+            if item["control"] is self.greeting_text:
+                item["value"] = self._display_name()
+        self.greeting_text.spans = _shimmer_spans(
+            self._display_name(), GREETING_COLORS, self._headline_phase
+        )
+        self.greeting_badge_icon.icon = self._greeting_icon()
+        self.greeting_badge_icon.color = self._greeting_accent()
+        self.greeting_date_text.value = datetime.now().strftime(
+            "%a %d %b  ·  %I:%M %p"
+        ).lstrip("0")
         self.workspace_name_text.value = self._workspace_name()
 
         for item in self.workspace_menu.items:
@@ -234,7 +505,10 @@ class HomeView:
 
         if refresh:
             try:
+                self.greeting_prefix.update()
                 self.greeting_text.update()
+                self.greeting_badge_icon.update()
+                self.greeting_date_text.update()
                 self.workspace_name_text.update()
                 self.workspace_menu.update()
             except Exception:
@@ -261,12 +535,46 @@ class HomeView:
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
             controls=[
-                ft.Column(spacing=4, controls=[
-                    self.greeting_text,
-                    ft.Row(spacing=9, controls=[
-                        ft.Container(width=7, height=7, bgcolor="#4DDB8A", border_radius=99),
-                        ft.Text("Workspace ready", size=10, color=AppColors.TEXT_SECONDARY),
-                    ]),
+                ft.Column(spacing=7, controls=[
+                    # Bottom-aligned so the two type sizes share one
+                    # baseline instead of floating against each other.
+                    ft.Row(
+                        spacing=9,
+                        vertical_alignment=ft.CrossAxisAlignment.END,
+                        controls=[
+                            self.greeting_prefix,
+                            self.greeting_text,
+                            ft.Container(
+                                margin=ft.Margin.only(left=3, bottom=5),
+                                padding=ft.Padding.only(
+                                    left=9, right=11, top=4, bottom=4),
+                                border_radius=99,
+                                bgcolor="#99101A2E",
+                                border=ft.Border.all(
+                                    1, _argb("44", self._greeting_accent())),
+                                content=ft.Row(
+                                    tight=True,
+                                    spacing=7,
+                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                    controls=[
+                                        self.greeting_badge_icon,
+                                        self.greeting_date_text,
+                                    ],
+                                ),
+                            ),
+                        ],
+                    ),
+                    ft.Row(spacing=9, vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                           controls=[
+                               ft.Container(
+                                   width=7, height=7, bgcolor="#4DDB8A",
+                                   border_radius=99,
+                                   shadow=ft.BoxShadow(
+                                       blur_radius=9, color="#AA4DDB8A"),
+                               ),
+                               ft.Text("Workspace ready", size=10,
+                                       color=AppColors.TEXT_SECONDARY),
+                           ]),
                 ]),
                 ft.Container(
                     width=184, height=56,
@@ -286,150 +594,10 @@ class HomeView:
         )
 
     def _hero(self):
-        upload = ft.Container(
-            width=410,
-            height=218,
-            padding=ft.Padding.symmetric(horizontal=20, vertical=16),
-            alignment=ft.Alignment.CENTER,
-            bgcolor="#B80A1322",
-            gradient=ft.LinearGradient(
-                colors=["#C30C1627", "#A60B1424", "#9B15142D"],
-            ),
-            border=ft.Border.all(1, "#43536F"),
-            border_radius=18,
-            shadow=ft.BoxShadow(
-                blur_radius=24,
-                spread_radius=-8,
-                offset=ft.Offset(0, 10),
-                color="#42000000",
-            ),
-            ink=True,
-            on_click=self.on_open_image,
-            on_hover=self._hover_upload,
-            animate=ft.Animation(AppAnimations.FAST, ft.AnimationCurve.EASE_OUT),
-            animate_scale=ft.Animation(AppAnimations.FAST, ft.AnimationCurve.EASE_OUT),
-            scale=1.0,
-            content=ft.Column(
-                tight=True,
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                spacing=9,
-                controls=[
-                    ft.Container(
-                        width=54,
-                        height=54,
-                        alignment=ft.Alignment.CENTER,
-                        border_radius=16,
-                        gradient=ft.LinearGradient(
-                            colors=["#293A7B", "#24275F"],
-                        ),
-                        border=ft.Border.all(1, "#6074DA"),
-                        shadow=ft.BoxShadow(
-                            blur_radius=22,
-                            spread_radius=-4,
-                            color="#725B72FF",
-                        ),
-                        content=ft.Icon(
-                            ft.Icons.ADD_PHOTO_ALTERNATE_OUTLINED,
-                            size=27,
-                            color="#EEF2FF",
-                        ),
-                    ),
-                    ft.Text(
-                        "Drop an image to start",
-                        size=15,
-                        weight=ft.FontWeight.W_600,
-                        color=AppColors.TEXT,
-                    ),
-                    ft.Row(
-                        tight=True,
-                        spacing=7,
-                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                        controls=[
-                            ft.Text("or", size=9, color=AppColors.MUTED),
-                            ft.Container(
-                                padding=ft.Padding.symmetric(horizontal=12, vertical=6),
-                                border_radius=9,
-                                bgcolor="#1B2B56",
-                                border=ft.Border.all(1, "#5369D9"),
-                                content=ft.Row(
-                                    tight=True,
-                                    spacing=6,
-                                    controls=[
-                                        ft.Icon(
-                                            ft.Icons.FOLDER_OPEN_OUTLINED,
-                                            size=14,
-                                            color="#AEB9FF",
-                                        ),
-                                        ft.Text(
-                                            "Browse files",
-                                            size=10,
-                                            weight=ft.FontWeight.W_600,
-                                            color="#DCE3FF",
-                                        ),
-                                    ],
-                                ),
-                            ),
-                        ],
-                    ),
-                    ft.Row(
-                        tight=True,
-                        spacing=5,
-                        controls=[
-                            ft.Container(
-                                padding=ft.Padding.symmetric(horizontal=7, vertical=3),
-                                border_radius=6,
-                                bgcolor="#101B2C",
-                                border=ft.Border.all(1, "#2C3B52"),
-                                content=ft.Text("PNG", size=7, color=AppColors.TEXT_SECONDARY),
-                            ),
-                            ft.Container(
-                                padding=ft.Padding.symmetric(horizontal=7, vertical=3),
-                                border_radius=6,
-                                bgcolor="#101B2C",
-                                border=ft.Border.all(1, "#2C3B52"),
-                                content=ft.Text("JPG", size=7, color=AppColors.TEXT_SECONDARY),
-                            ),
-                            ft.Container(
-                                padding=ft.Padding.symmetric(horizontal=7, vertical=3),
-                                border_radius=6,
-                                bgcolor="#101B2C",
-                                border=ft.Border.all(1, "#2C3B52"),
-                                content=ft.Text("TIFF", size=7, color=AppColors.TEXT_SECONDARY),
-                            ),
-                            ft.Container(
-                                padding=ft.Padding.symmetric(horizontal=7, vertical=3),
-                                border_radius=6,
-                                bgcolor="#101B2C",
-                                border=ft.Border.all(1, "#2C3B52"),
-                                content=ft.Text("BMP", size=7, color=AppColors.TEXT_SECONDARY),
-                            ),
-                            ft.Container(
-                                padding=ft.Padding.symmetric(horizontal=7, vertical=3),
-                                border_radius=6,
-                                bgcolor="#101B2C",
-                                border=ft.Border.all(1, "#2C3B52"),
-                                content=ft.Text("WebP", size=7, color=AppColors.TEXT_SECONDARY),
-                            ),
-                        ],
-                    ),
-                    ft.Row(
-                        tight=True,
-                        spacing=6,
-                        controls=[
-                            ft.Icon(ft.Icons.DRAG_INDICATOR, size=13, color=AppColors.MUTED),
-                            ft.Text(
-                                "Drag & drop or click anywhere in this card",
-                                size=8,
-                                color=AppColors.MUTED,
-                            ),
-                        ],
-                    ),
-                ],
-            ),
-        )
+        modes = self._mode_cards()
         return ft.Container(
-            height=314,
-            padding=ft.Padding.only(left=26, right=20, top=16, bottom=14),
+            height=292,
+            padding=ft.Padding.only(left=28, right=24, top=18, bottom=18),
             border=ft.Border.all(1, "#293B59"), border_radius=17,
             image=ft.DecorationImage(src=GALAXY_IMAGE, fit=ft.BoxFit.COVER, opacity=0.46),
             bgcolor="#B407111F",
@@ -438,22 +606,77 @@ class HomeView:
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 controls=[
-                    ft.Column(spacing=14, controls=[
-                        ft.Text("Your Image Processing Universe", size=23, weight=ft.FontWeight.BOLD, color=AppColors.TEXT),
-                        upload,
-                    ]),
-                    ft.Container(width=560, height=278, content=self._orbit()),
+                    ft.Column(
+                        spacing=20,
+                        alignment=ft.MainAxisAlignment.CENTER,
+                        horizontal_alignment=ft.CrossAxisAlignment.START,
+                        controls=[
+                            self._hero_title(),
+                            # Three cards on one line; the Row inside wraps
+                            # if the window is too narrow to hold them.
+                            ft.Container(width=706, content=modes),
+                        ],
+                    ),
+                    ft.Container(width=ORBIT_W, height=ORBIT_H,
+                                 content=self._orbit()),
                 ],
             ),
         )
 
+    def _hero_title(self):
+        """A two-weight shimmering headline over a glowing rule.
+
+        The line is split so "UNIVERSE" carries the size, the weight and
+        the brightest part of the ramp while the first three words sit
+        back. A band of light travels through both lines continuously.
+        """
+        self.hero_line_one = ft.Text(
+            spans=_shimmer_spans("Your Image Processing", HEADLINE_SOFT, 0.0),
+            size=19,
+            weight=ft.FontWeight.W_500,
+        )
+        self.hero_line_two = ft.Text(
+            spans=_shimmer_spans("UNIVERSE", HEADLINE_COLORS, 0.0),
+            size=34,
+            weight=ft.FontWeight.BOLD,
+        )
+
+        self._register_headline(
+            self.hero_line_one, "Your Image Processing", HEADLINE_SOFT, speed=1.0
+        )
+        self._register_headline(
+            self.hero_line_two, "UNIVERSE", HEADLINE_COLORS, speed=1.0
+        )
+
+        # The rule breathes with the same loop as the rest of the page.
+        self.hero_rule = ft.Container(
+            width=196,
+            height=3,
+            border_radius=2,
+            gradient=ft.LinearGradient(
+                colors=["#8B5CF6", "#5BE7F0", "#00000000"]),
+            shadow=ft.BoxShadow(blur_radius=14, color="#665BE7F0"),
+        )
+
+        # Two lines and a rule, all flush left on the same edge.
+        return ft.Column(
+            spacing=0,
+            horizontal_alignment=ft.CrossAxisAlignment.START,
+            controls=[
+                self.hero_line_one,
+                self.hero_line_two,
+                ft.Container(height=7),
+                self.hero_rule,
+            ],
+        )
+
     def _orbit(self):
-        cx, cy = 280, 139
+        cx, cy = ORBIT_CX, ORBIT_CY
 
         # Dashed elliptical orbit rails, drawn on a canvas so they read as
         # "orbit paths" rather than plain circles.
         ring_paths = fc.Canvas(
-            width=560, height=278,
+            width=ORBIT_W, height=ORBIT_H,
             shapes=[
                 fc.Oval(
                     x=cx - radius, y=cy - radius * ORBIT_ASPECT,
@@ -465,11 +688,12 @@ class HomeView:
                         stroke_dash_pattern=[5, 5],
                     ),
                 )
-                for radius in (78, 112, 148)
+                for radius in ORBIT_RINGS
             ],
         )
 
-        self.orbit_stack = ft.Stack(width=560, height=278, controls=[ring_paths])
+        self.orbit_stack = ft.Stack(width=ORBIT_W, height=ORBIT_H,
+                                    controls=[ring_paths])
 
         # No background glow behind the center logo.
         self._glow_container = None
@@ -508,13 +732,13 @@ class HomeView:
         ]
         for label, icon, accent, angle in specs:
             shell = ft.Container(
-                width=49, height=49, alignment=ft.Alignment.CENTER, border_radius=99,
+                width=45, height=45, alignment=ft.Alignment.CENTER, border_radius=99,
                 bgcolor=f"B328{accent[1:]}", border=ft.Border.all(1, accent),
                 shadow=ft.BoxShadow(blur_radius=16, color=f"55{accent[1:]}"),
-                content=ft.Icon(icon, size=21, color="#EAF1FF"),
+                content=ft.Icon(icon, size=19, color="#EAF1FF"),
             )
             holder = ft.Container(
-                width=86, height=72,
+                width=80, height=66,
                 # Smoothly interpolates between the positions set every animation
                 # tick, so the orbit reads as continuous motion, not a stepped jump.
                 animate_position=ft.Animation(ORBIT_TRANSITION_MS, ft.AnimationCurve.LINEAR),
@@ -522,16 +746,16 @@ class HomeView:
                                   controls=[ft.Text(label, size=10, color=AppColors.TEXT), shell]),
             )
             self.orbit_stack.controls.append(holder)
-            self._nodes.append((holder, angle, 148))
+            self._nodes.append((holder, angle, ORBIT_RADIUS))
         self._place_nodes()
         return self.orbit_stack
 
     def _place_nodes(self):
-        cx, cy = 280, 139
+        cx, cy = ORBIT_CX, ORBIT_CY
         for holder, base, radius in self._nodes:
             angle = base + self._phase
-            holder.left = cx + math.cos(angle) * radius - 43
-            holder.top = cy + math.sin(angle) * radius * ORBIT_ASPECT - 36
+            holder.left = cx + math.cos(angle) * radius - 40
+            holder.top = cy + math.sin(angle) * radius * ORBIT_ASPECT - 33
 
     @staticmethod
     def _mix_hex(color_a, color_b, amount):
@@ -813,7 +1037,13 @@ class HomeView:
                             ft.Button(
                                 content="Start",
                                 icon=ft.Icons.PLAY_ARROW_OUTLINED,
-                                on_click=lambda e: self._navigate(1),
+                                on_click=lambda e: self._navigate(
+                                    route_index(
+                                        "blur_sharpen"
+                                        if spatial
+                                        else "frequency"
+                                    )
+                                ),
                                 bgcolor="#27387C" if spatial else "#15528A",
                                 color=AppColors.TEXT,
                                 style=ft.ButtonStyle(
@@ -1165,7 +1395,7 @@ class HomeView:
             shadow=ft.BoxShadow(blur_radius=0, spread_radius=0, offset=ft.Offset(0, 8), color="#00000000"),
             on_hover=self._hover_project,
             ink=True,
-            on_click=lambda e: self._navigate(1),
+            on_click=lambda e: self._navigate(route_index("blur_sharpen")),
             content=ft.Column(spacing=0, controls=[
                 ft.Image(src=image, height=165, width=600, fit=ft.BoxFit.COVER,
                          gapless_playback=True,
@@ -1206,21 +1436,224 @@ class HomeView:
         )
         e.control.update()
 
+    # =========================================================
+    # MODE CARDS (Explore / Discover / SaveEarth)
+    # =========================================================
+
+    def _mode_cards(self):
+        self._mode_states = []
+        cards = []
+
+        for index, spec in enumerate(MODE_CARDS):
+            # Stagger the starting angle so the three lights never line up.
+            angle = index * 2.1
+            cards.append(self._mode_card(spec, angle))
+
+        # Wraps rather than overflowing: on a narrow window the third
+        # card drops to a second line instead of being clipped.
+        self._mode_column = ft.Row(
+            spacing=14,
+            run_spacing=12,
+            wrap=True,
+            controls=cards,
+        )
+        return self._mode_column
+
+    def _mode_card(self, spec, angle):
+        accent = spec["accent"]
+
+        arrow = ft.Container(
+            width=26,
+            height=26,
+            alignment=ft.Alignment.CENTER,
+            border_radius=16,
+            bgcolor=_argb("26", accent),
+            offset=ft.Offset(0, 0),
+            animate_offset=ft.Animation(AppAnimations.NORMAL, ft.AnimationCurve.EASE_OUT),
+            content=ft.Icon(ft.Icons.ARROW_FORWARD_ROUNDED, size=15, color=accent),
+        )
+
+        badge = ft.Container(
+            width=40,
+            height=40,
+            alignment=ft.Alignment.CENTER,
+            border_radius=13,
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment.TOP_LEFT,
+                end=ft.Alignment.BOTTOM_RIGHT,
+                colors=[spec["tint"], "#0B1120"],
+            ),
+            border=ft.Border.all(1, _argb("99", accent)),
+            shadow=ft.BoxShadow(blur_radius=18, spread_radius=-6, color=_argb("80", accent)),
+            animate=ft.Animation(AppAnimations.NORMAL, ft.AnimationCurve.EASE_OUT),
+            content=ft.Icon(spec["icon"], size=21, color=accent),
+        )
+
+        inner = ft.Container(
+            expand=True,
+            border_radius=15,
+            padding=ft.Padding.only(left=12, right=10, top=10, bottom=10),
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment.TOP_LEFT,
+                end=ft.Alignment.BOTTOM_RIGHT,
+                colors=["#F50B1426", "#F20A1220", "#F0101329"],
+            ),
+            content=ft.Row(
+                spacing=11,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[
+                    badge,
+                    ft.Column(
+                        expand=True,
+                        spacing=3,
+                        alignment=ft.MainAxisAlignment.CENTER,
+                        controls=[
+                            ft.Text(
+                                spec["title"],
+                                size=15,
+                                weight=ft.FontWeight.BOLD,
+                                color=AppColors.TEXT,
+                            ),
+                            ft.Text(
+                                spec["subtitle"],
+                                size=9,
+                                max_lines=2,
+                                color=AppColors.TEXT_SECONDARY,
+                                overflow=ft.TextOverflow.ELLIPSIS,
+                            ),
+                        ],
+                    ),
+                    arrow,
+                ],
+            ),
+        )
+
+        state = {
+            "spec": spec,
+            "angle": angle,
+            "hovered": False,
+            "arrow": arrow,
+            "badge": badge,
+        }
+
+        # The outer container's gradient *is* the border: a thin padding
+        # lets it show around the dark inner card. Rotating the sweep
+        # gradient makes a comet of light travel around the edge.
+        outer = ft.Container(
+            width=MODE_CARD_WIDTH,
+            height=MODE_CARD_HEIGHT,
+            padding=MODE_BORDER_WIDTH,
+            border_radius=16.5,
+            gradient=self._mode_border_gradient(spec, angle, False),
+            shadow=ft.BoxShadow(
+                blur_radius=22,
+                spread_radius=-9,
+                offset=ft.Offset(0, 8),
+                color="#48000000",
+            ),
+            scale=1.0,
+            animate_scale=ft.Animation(AppAnimations.FAST, ft.AnimationCurve.EASE_OUT),
+            ink=True,
+            tooltip=f"Open {spec['title']}",
+            on_click=lambda e, route=spec["route"]: self._navigate(route_index(route)),
+            on_hover=lambda e, s=state: self._hover_mode(e, s),
+            content=inner,
+        )
+
+        state["outer"] = outer
+        self._mode_states.append(state)
+        return outer
+
     @staticmethod
-    def _hover_upload(e):
+    def _mode_border_gradient(spec, angle, hovered):
+        rim = spec["rim"]
+        accent = spec["accent"]
+        accent_2 = spec["accent_2"]
+
+        if hovered:
+            # Brighter rim with a longer, whiter comet.
+            colors = [
+                _argb("CC", accent_2),
+                _argb("CC", accent_2),
+                accent,
+                "#FFF4F6FF",
+                accent,
+                _argb("CC", accent_2),
+            ]
+            stops = [0.0, 0.35, 0.72, 0.84, 0.94, 1.0]
+        else:
+            # Quiet rim with a single comet: faint tail -> bright head.
+            colors = [
+                rim,
+                rim,
+                _argb("99", accent_2),
+                accent,
+                rim,
+            ]
+            stops = [0.0, 0.5, 0.78, 0.9, 1.0]
+
+        return ft.SweepGradient(
+            center=ft.Alignment.CENTER,
+            colors=colors,
+            stops=stops,
+            rotation=angle,
+        )
+
+    def _hover_mode(self, e, state):
         hovered = str(e.data).lower() == "true"
-        e.control.border = ft.Border.all(
-            1,
-            "#8494FF" if hovered else "#43536F",
+        accent = state["spec"]["accent"]
+
+        state["hovered"] = hovered
+
+        outer = state["outer"]
+        outer.scale = 1.018 if hovered else 1.0
+        outer.gradient = self._mode_border_gradient(
+            state["spec"], state["angle"], hovered
         )
-        e.control.scale = 1.012 if hovered else 1.0
-        e.control.shadow = ft.BoxShadow(
-            blur_radius=32 if hovered else 24,
-            spread_radius=-5 if hovered else -8,
-            offset=ft.Offset(0, 12 if hovered else 10),
-            color="#765D72FF" if hovered else "#42000000",
+        outer.shadow = ft.BoxShadow(
+            blur_radius=34 if hovered else 22,
+            spread_radius=-6 if hovered else -9,
+            offset=ft.Offset(0, 12 if hovered else 8),
+            color=_argb("70", accent) if hovered else "#48000000",
         )
-        e.control.update()
+
+        state["arrow"].offset = ft.Offset(0.18 if hovered else 0, 0)
+        state["arrow"].bgcolor = _argb("44" if hovered else "26", accent)
+
+        state["badge"].shadow = ft.BoxShadow(
+            blur_radius=26 if hovered else 18,
+            spread_radius=-3 if hovered else -6,
+            color=_argb("B0" if hovered else "80", accent),
+        )
+
+        try:
+            outer.update()
+        except Exception:
+            pass
+
+    def _advance_mode_cards(self, dt):
+        if not self._mode_states:
+            return
+
+        for state in self._mode_states:
+            speed = MODE_HOVER_SPEED if state["hovered"] else MODE_IDLE_SPEED
+            state["angle"] = (state["angle"] + speed * dt) % (2 * math.pi)
+
+        # Throttle: a border shimmer does not need the orbit's frame rate.
+        self._mode_update_accum += dt
+        if self._mode_update_accum < MODE_UPDATE_INTERVAL:
+            return
+        self._mode_update_accum = 0.0
+
+        for state in self._mode_states:
+            state["outer"].gradient = self._mode_border_gradient(
+                state["spec"], state["angle"], state["hovered"]
+            )
+
+        try:
+            self._mode_column.update()
+        except Exception:
+            pass
 
     async def start_orbit_animation(self):
         if self._orbit_running:
@@ -1243,6 +1676,13 @@ class HomeView:
                 # Animate Spatial/Frequency workflow signal flow using the
                 # same timing loop as the orbital animation.
                 self._advance_workflow_animation(dt)
+
+                # Travelling light around the Explore / Discover /
+                # SaveEarth card borders.
+                self._advance_mode_cards(dt)
+
+                # ...and the light travelling through the headlines.
+                self._advance_headlines(dt)
 
                 # Gentle breathing glow behind the center thumbnail.
                 glow_phase += ORBIT_GLOW_SPEED * dt
