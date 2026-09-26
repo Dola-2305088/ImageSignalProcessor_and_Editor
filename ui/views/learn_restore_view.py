@@ -160,7 +160,11 @@ class LearnRestoreView:
             ],
         )
 
-        return ft.Column(spacing=16, controls=[header, stage, controls])
+        return ft.Column(
+            spacing=16,
+            horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+            controls=[header, stage, controls],
+        )
 
     def _chapter_pill(self, index):
         number = ft.Container(

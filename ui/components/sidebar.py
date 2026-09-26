@@ -29,7 +29,16 @@ from ui.theme import AppAnimations, AppColors, AppLayout
 
 SPATIAL = "spatial"
 FREQUENCY = "frequency"
-DISCOVER = "discover"
+LEARN_SPATIAL = "learn_spatial"
+LEARN_FREQUENCY = "learn_frequency"
+
+# Which band of the sidebar a group belongs to. Nine lessons under one
+# "Discover" heading was a wall of text; split by domain they mirror the
+# feature groups directly above them.
+SECTIONS = [
+    ("WORKSPACE", (SPATIAL, FREQUENCY)),
+    ("LEARN", (LEARN_SPATIAL, LEARN_FREQUENCY)),
+]
 
 GROUPS = {
     SPATIAL: {
@@ -46,12 +55,20 @@ GROUPS = {
         "accent_bg": "#0C2C36",
         "accent_border": "#1F6274",
     },
-    DISCOVER: {
-        "title": "Discover",
-        "icon": ft.Icons.AUTO_STORIES_OUTLINED,
+    LEARN_SPATIAL: {
+        "title": "Spatial lessons",
+        "icon": ft.Icons.SCHOOL_OUTLINED,
         "accent": AppColors.ORANGE_LIGHT,
         "accent_bg": "#2A2110",
         "accent_border": "#7A5A1C",
+        "unit": "lessons",
+    },
+    LEARN_FREQUENCY: {
+        "title": "Frequency lessons",
+        "icon": ft.Icons.GRAPHIC_EQ,
+        "accent": "#34D399",
+        "accent_bg": "#0F2A22",
+        "accent_border": "#1F6B52",
         "unit": "lessons",
     },
 }
@@ -73,10 +90,6 @@ NAV_ITEMS = [
         "selected_icon": ft.Icons.HOME,
         "group": None,
     },
-
-    # ------------------------------------------------------------------
-    # SPATIAL DOMAIN
-    # ------------------------------------------------------------------
     {
         "key": "blur_sharpen",
         "label": "Blur & Sharpen",
@@ -126,10 +139,6 @@ NAV_ITEMS = [
         "selected_icon": ft.Icons.AUTO_FIX_HIGH,
         "group": SPATIAL,
     },
-
-    # ------------------------------------------------------------------
-    # FREQUENCY DOMAIN
-    # ------------------------------------------------------------------
     {
         "key": "frequency",
         "label": "Frequency",
@@ -165,30 +174,20 @@ NAV_ITEMS = [
         "selected_icon": ft.Icons.PALETTE,
         "group": FREQUENCY,
     },
-
-    # ------------------------------------------------------------------
-    # DISCOVER (learning mode)
-    # ------------------------------------------------------------------
-    # "full_page" pages own their whole stage: main_window skips the
-    # Original / Processed image cards and the image actions for them.
     {
         "key": "learn_convolution",
         "label": "Convolution",
         "icon": ft.Icons.GRID_4X4,
         "selected_icon": ft.Icons.GRID_4X4,
-        "group": DISCOVER,
+        "group": LEARN_SPATIAL,
         "full_page": True,
     },
-
-    # ------------------------------------------------------------------
-    # SAVEEARTH (game mode)
-    # ------------------------------------------------------------------
     {
         "key": "learn_resize",
         "label": "Resizing",
         "icon": ft.Icons.PHOTO_SIZE_SELECT_LARGE,
         "selected_icon": ft.Icons.PHOTO_SIZE_SELECT_LARGE,
-        "group": DISCOVER,
+        "group": LEARN_SPATIAL,
         "full_page": True,
     },
     {
@@ -196,7 +195,7 @@ NAV_ITEMS = [
         "label": "Noise",
         "icon": ft.Icons.GRAIN,
         "selected_icon": ft.Icons.GRAIN,
-        "group": DISCOVER,
+        "group": LEARN_SPATIAL,
         "full_page": True,
     },
     {
@@ -204,10 +203,49 @@ NAV_ITEMS = [
         "label": "Restoration",
         "icon": ft.Icons.AUTO_FIX_HIGH,
         "selected_icon": ft.Icons.AUTO_FIX_HIGH,
-        "group": DISCOVER,
+        "group": LEARN_SPATIAL,
         "full_page": True,
     },
-
+    {
+        "key": "learn_spectrum",
+        "label": "Waves & spectra",
+        "icon": ft.Icons.GRAPHIC_EQ,
+        "selected_icon": ft.Icons.GRAPHIC_EQ,
+        "group": LEARN_FREQUENCY,
+        "full_page": True,
+    },
+    {
+        "key": "learn_filter",
+        "label": "Filtering & hybrids",
+        "icon": ft.Icons.ADJUST,
+        "selected_icon": ft.Icons.ADJUST,
+        "group": LEARN_FREQUENCY,
+        "full_page": True,
+    },
+    {
+        "key": "learn_compression",
+        "label": "Compression",
+        "icon": ft.Icons.COMPRESS,
+        "selected_icon": ft.Icons.COMPRESS,
+        "group": LEARN_FREQUENCY,
+        "full_page": True,
+    },
+    {
+        "key": "learn_texture",
+        "label": "Texture",
+        "icon": ft.Icons.TEXTURE,
+        "selected_icon": ft.Icons.TEXTURE,
+        "group": LEARN_FREQUENCY,
+        "full_page": True,
+    },
+    {
+        "key": "learn_colour",
+        "label": "Colour",
+        "icon": ft.Icons.PALETTE_OUTLINED,
+        "selected_icon": ft.Icons.PALETTE_OUTLINED,
+        "group": LEARN_FREQUENCY,
+        "full_page": True,
+    },
     {
         "key": "save_earth",
         "label": "SaveEarth",
@@ -287,6 +325,12 @@ class Sidebar:
         return str(value).strip().lower() in {"true", "1", "yes"}
 
     @staticmethod
+    def _accent_line(group):
+        if group is None:
+            return AppColors.BLUE_LIGHT
+        return GROUPS[group]["accent"]
+
+    @staticmethod
     def _accent_bg(group):
         if group in GROUPS:
             return GROUPS[group]["accent_bg"]
@@ -302,12 +346,48 @@ class Sidebar:
     # BUILD
     # =========================================================
 
+    def _section_label(self, title):
+        """A quiet caps heading that separates the two bands."""
+        label = ft.Container(
+            width=LABEL_WIDTH,
+            content=ft.Row(
+                spacing=8,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[
+                    ft.Text(title, size=8, weight=ft.FontWeight.BOLD,
+                            color=AppColors.MUTED_DARK),
+                    ft.Container(expand=True, height=1, bgcolor="#16223A"),
+                ],
+            ),
+            animate=ft.Animation(AppAnimations.NORMAL, ft.AnimationCurve.EASE_OUT),
+        )
+        self.labels.append(label)
+
+        return ft.Container(
+            height=26,
+            margin=ft.Margin.only(top=12, bottom=2),
+            padding=ft.Padding.only(left=10, right=10),
+            alignment=ft.Alignment.CENTER_LEFT,
+            content=ft.Row(spacing=13, controls=[
+                ft.Container(width=20, height=1, bgcolor="#16223A"),
+                label,
+            ]),
+        )
+
     def _build(self):
         nav_controls = []
         rendered_groups = set()
+        rendered_sections = set()
 
         for index, item in enumerate(NAV_ITEMS):
             group = item["group"]
+
+            section = next(
+                (name for name, groups in SECTIONS if group in groups), None
+            )
+            if section is not None and section not in rendered_sections:
+                rendered_sections.add(section)
+                nav_controls.append(self._section_label(section))
 
             if group is not None and group not in rendered_groups:
                 rendered_groups.add(group)
@@ -412,23 +492,35 @@ class Sidebar:
 
         self.group_chevrons[group] = chevron
 
+        count_pill = ft.Container(
+            width=20,
+            height=16,
+            alignment=ft.Alignment.CENTER,
+            border_radius=8,
+            bgcolor=meta["accent_bg"],
+            border=ft.Border.all(1, meta["accent_border"]),
+            content=ft.Text(
+                str(count),
+                size=8,
+                weight=ft.FontWeight.BOLD,
+                color=meta["accent"],
+            ),
+        )
+
         label_holder = ft.Container(
             width=LABEL_WIDTH,
             content=ft.Row(
                 spacing=6,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 controls=[
                     ft.Text(
                         meta["title"],
-                        size=10,
-                        weight=ft.FontWeight.W_600,
-                        color=AppColors.MUTED,
+                        size=10.5,
+                        weight=ft.FontWeight.BOLD,
+                        color=AppColors.TEXT_SECONDARY,
                     ),
                     ft.Container(expand=True),
-                    ft.Text(
-                        str(count),
-                        size=9,
-                        color=AppColors.MUTED_DARK,
-                    ),
+                    count_pill,
                     chevron,
                 ],
             ),
@@ -441,10 +533,10 @@ class Sidebar:
         self.labels.append(label_holder)
 
         header = ft.Container(
-            height=HEADER_HEIGHT,
-            margin=ft.Margin.only(top=8),
-            padding=ft.Padding.symmetric(horizontal=10),
-            border_radius=8,
+            height=HEADER_HEIGHT + 4,
+            margin=ft.Margin.only(top=4),
+            padding=ft.Padding.symmetric(horizontal=8),
+            border_radius=11,
             ink=True,
             tooltip=f"{meta['title']} ({count} {meta.get('unit', 'features')})",
             on_click=lambda e, g=group: self.toggle_group(g),
@@ -452,11 +544,20 @@ class Sidebar:
             data={"rest_bg": "#00000000"},
             content=ft.Row(
                 spacing=13,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 controls=[
-                    ft.Icon(
-                        meta["icon"],
-                        size=17,
-                        color=meta["accent"],
+                    ft.Container(
+                        width=26,
+                        height=26,
+                        alignment=ft.Alignment.CENTER,
+                        border_radius=9,
+                        bgcolor=meta["accent_bg"],
+                        border=ft.Border.all(1, meta["accent_border"]),
+                        content=ft.Icon(
+                            meta["icon"],
+                            size=15,
+                            color=meta["accent"],
+                        ),
                     ),
                     label_holder,
                 ],
@@ -480,8 +581,18 @@ class Sidebar:
 
         icon_control = ft.Icon(
             selected_icon if selected else icon,
-            size=20,
+            size=19,
             color="#EAF0FF" if selected else AppColors.TEXT_SECONDARY,
+        )
+
+        # A short bar on the left edge marks the current page far more
+        # clearly than a tinted background alone.
+        marker = ft.Container(
+            width=3,
+            height=18 if selected else 0,
+            border_radius=2,
+            bgcolor=self._accent_line(group),
+            animate=ft.Animation(AppAnimations.FAST, ft.AnimationCurve.EASE_OUT),
         )
 
         label_control = ft.Text(
@@ -502,10 +613,10 @@ class Sidebar:
         control = ft.Container(
             height=ITEM_HEIGHT,
             padding=ft.Padding.only(
-                left=10 if group is None else 18,
+                left=6 if group is None else 12,
                 right=10,
             ),
-            border_radius=10,
+            border_radius=11,
             bgcolor=self._accent_bg(group) if selected else "#00000000",
             border=ft.Border.all(
                 1,
@@ -527,10 +638,13 @@ class Sidebar:
                 "selected_icon": selected_icon,
                 "icon_control": icon_control,
                 "label_control": label_control,
+                "marker": marker,
             },
             content=ft.Row(
-                spacing=13,
+                spacing=9,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 controls=[
+                    marker,
                     icon_control,
                     label_holder,
                 ],
@@ -648,33 +762,32 @@ class Sidebar:
     # =========================================================
 
     def _profile(self):
+        """The account row at the foot of the sidebar.
+
+        Name only: the plan was noise in a navigation rail, and it is
+        still editable in Settings. Dropping it also lets the avatar,
+        the name and the chevron share one centre line.
+        """
         self.profile_name_text = ft.Text(
             getattr(self.profile, "name", None) or "User",
-            size=10,
+            size=11,
+            weight=ft.FontWeight.W_600,
             color=AppColors.TEXT,
-        )
-
-        self.profile_plan_text = ft.Text(
-            getattr(self.profile, "plan", None) or "Student Plan",
-            size=8,
-            color=AppColors.MUTED,
+            no_wrap=True,
+            overflow=ft.TextOverflow.ELLIPSIS,
         )
 
         self.profile_avatar_text = ft.Text(
             getattr(self.profile, "initials", None) or "U",
-            size=13,
+            size=12,
+            weight=ft.FontWeight.BOLD,
             color=AppColors.WHITE,
         )
 
         self.profile_text = ft.Container(
             width=LABEL_WIDTH,
-            content=ft.Column(
-                spacing=0,
-                controls=[
-                    self.profile_name_text,
-                    self.profile_plan_text,
-                ],
-            ),
+            alignment=ft.Alignment.CENTER_LEFT,
+            content=self.profile_name_text,
             animate=ft.Animation(
                 AppAnimations.NORMAL,
                 ft.AnimationCurve.EASE_OUT,
@@ -683,36 +796,58 @@ class Sidebar:
 
         self.labels.append(self.profile_text)
 
+        avatar = ft.Container(
+            width=34,
+            height=34,
+            border_radius=99,
+            alignment=ft.Alignment.CENTER,
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment.TOP_LEFT,
+                end=ft.Alignment.BOTTOM_RIGHT,
+                colors=["#8B5CF6", "#3158B6"],
+            ),
+            border=ft.Border.all(1, "#A9B7FF33"),
+            shadow=ft.BoxShadow(
+                blur_radius=14,
+                spread_radius=-4,
+                color="#667B4AE2",
+            ),
+            content=self.profile_avatar_text,
+        )
+
         return ft.Container(
-            height=64,
+            height=56,
             margin=ft.Margin.only(top=10),
-            padding=ft.Padding.symmetric(horizontal=10),
-            border_radius=12,
-            bgcolor="#0A1422",
+            padding=ft.Padding.only(left=9, right=8),
+            border_radius=14,
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment.TOP_LEFT,
+                end=ft.Alignment.BOTTOM_RIGHT,
+                colors=["#101A2B", "#0A1220"],
+            ),
             border=ft.Border.all(1, "#223047"),
             ink=True,
             tooltip="Edit profile",
             on_click=self._edit_profile,
             on_hover=self._hover_simple,
-            data={"rest_bg": "#0A1422"},
+            data={"rest_bg": "#00000000"},
             content=ft.Row(
-                spacing=10,
+                spacing=11,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 controls=[
-                    ft.Container(
-                        width=35,
-                        height=35,
-                        border_radius=99,
-                        alignment=ft.Alignment.CENTER,
-                        gradient=ft.LinearGradient(
-                            colors=["#7B4AE2", "#3158B6"],
-                        ),
-                        content=self.profile_avatar_text,
-                    ),
+                    avatar,
                     self.profile_text,
-                    ft.Icon(
-                        ft.Icons.UNFOLD_MORE,
-                        size=16,
-                        color=AppColors.TEXT_SECONDARY,
+                    ft.Container(
+                        width=24,
+                        height=24,
+                        alignment=ft.Alignment.CENTER,
+                        border_radius=8,
+                        bgcolor="#14203358",
+                        content=ft.Icon(
+                            ft.Icons.TUNE_ROUNDED,
+                            size=14,
+                            color=AppColors.TEXT_SECONDARY,
+                        ),
                     ),
                 ],
             ),
@@ -760,14 +895,13 @@ class Sidebar:
     def set_profile(self, profile, refresh=True):
         self.profile = profile
 
+        # The plan is intentionally not shown here; Settings owns it.
         self.profile_name_text.value = profile.name
-        self.profile_plan_text.value = profile.plan
         self.profile_avatar_text.value = profile.initials
 
         if refresh:
             try:
                 self.profile_name_text.update()
-                self.profile_plan_text.update()
                 self.profile_avatar_text.update()
             except Exception:
                 pass
@@ -805,6 +939,8 @@ class Sidebar:
                 if selected
                 else "#00000000",
             )
+
+            data["marker"].height = 18 if selected else 0
 
             data["icon_control"].icon = (
                 data["selected_icon"]
