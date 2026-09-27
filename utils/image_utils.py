@@ -3,16 +3,16 @@ import cv2
 
 def load_image(path):
     """
-    Load an image from disk.
+    Load an image from the given path.
 
-    OpenCV normally loads as BGR.
-    We convert it to RGB.
+    OpenCV loads images as BGR,
+    so convert them to RGB.
     """
 
     image = cv2.imread(path)
 
     if image is None:
-        raise FileNotFoundError(
+        raise ValueError(
             f"Could not load image: {path}"
         )
 
@@ -22,19 +22,3 @@ def load_image(path):
     )
 
     return image
-
-
-def save_image(path, image):
-    """
-    Save RGB image using OpenCV.
-    """
-
-    bgr_image = cv2.cvtColor(
-        image,
-        cv2.COLOR_RGB2BGR
-    )
-
-    cv2.imwrite(
-        path,
-        bgr_image
-    )
