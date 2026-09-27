@@ -659,70 +659,303 @@ class ImageProcessorApp:
     def show_profile_dialog(self, e=None):
         self.show_settings_dialog(e)
 
+    # =========================================================
+    # ABOUT
+    # =========================================================
+
+    @staticmethod
+    def _about_stat(value, label, accent):
+        return ft.Container(
+            width=118,
+            padding=ft.Padding.symmetric(horizontal=10, vertical=11),
+            border_radius=13,
+            bgcolor="#14" + accent.lstrip("#"),
+            border=ft.Border.all(1, "#44" + accent.lstrip("#")),
+            content=ft.Column(
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                spacing=2,
+                controls=[
+                    ft.Text(value, size=19, weight=ft.FontWeight.BOLD,
+                            color=accent),
+                    ft.Text(label.upper(), size=8, weight=ft.FontWeight.BOLD,
+                            color=AppColors.MUTED, text_align=ft.TextAlign.CENTER),
+                ],
+            ),
+        )
+
+    @staticmethod
+    def _about_section(title, accent, body):
+        return ft.Column(
+            spacing=8,
+            controls=[
+                ft.Row(
+                    tight=True,
+                    spacing=8,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    controls=[
+                        ft.Container(width=7, height=7, border_radius=4,
+                                     bgcolor=accent),
+                        ft.Text(title.upper(), size=9, weight=ft.FontWeight.BOLD,
+                                color=accent),
+                    ],
+                ),
+                body,
+            ],
+        )
+
+    @staticmethod
+    def _about_fact(text, accent):
+        return ft.Row(
+            spacing=9,
+            vertical_alignment=ft.CrossAxisAlignment.START,
+            controls=[
+                ft.Icon(ft.Icons.AUTO_AWESOME, size=13, color=accent),
+                ft.Container(expand=True,
+                             content=ft.Text(text, size=11,
+                                             color=AppColors.TEXT_SECONDARY)),
+            ],
+        )
+
+    def _about_author(self, name, role, initials, accent, duties):
+        return ft.Container(
+            width=286,
+            padding=14,
+            border_radius=15,
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment.TOP_LEFT,
+                end=ft.Alignment.BOTTOM_RIGHT,
+                colors=["#121A2B", "#0C1220"],
+            ),
+            border=ft.Border.all(1, "#33" + accent.lstrip("#")),
+            content=ft.Column(
+                spacing=10,
+                controls=[
+                    ft.Row(
+                        spacing=11,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        controls=[
+                            ft.Container(
+                                width=38, height=38,
+                                alignment=ft.Alignment.CENTER,
+                                border_radius=99,
+                                gradient=ft.LinearGradient(
+                                    begin=ft.Alignment.TOP_LEFT,
+                                    end=ft.Alignment.BOTTOM_RIGHT,
+                                    colors=[accent, "#1E2A4A"],
+                                ),
+                                shadow=ft.BoxShadow(
+                                    blur_radius=16, spread_radius=-5,
+                                    color="#88" + accent.lstrip("#")),
+                                content=ft.Text(initials, size=13,
+                                                weight=ft.FontWeight.BOLD,
+                                                color="#FFFFFF"),
+                            ),
+                            ft.Column(
+                                spacing=1,
+                                controls=[
+                                    ft.Text(name, size=13,
+                                            weight=ft.FontWeight.BOLD,
+                                            color=AppColors.TEXT),
+                                    ft.Text(role, size=9, color=accent),
+                                ],
+                            ),
+                        ],
+                    ),
+                    ft.Column(
+                        spacing=4,
+                        controls=[
+                            ft.Row(
+                                spacing=7,
+                                vertical_alignment=ft.CrossAxisAlignment.START,
+                                controls=[
+                                    ft.Text("•", size=11, color=accent),
+                                    ft.Container(
+                                        expand=True,
+                                        content=ft.Text(
+                                            duty, size=10,
+                                            color=AppColors.TEXT_SECONDARY),
+                                    ),
+                                ],
+                            )
+                            for duty in duties
+                        ],
+                    ),
+                ],
+            ),
+        )
+
     def show_about_dialog(self, e=None):
+        """A short, honest tour of what this app is and who built it."""
+
         def close_dialog(event=None):
             self.page.pop_dialog()
+
+        violet = AppColors.PURPLE_LIGHT
+        cyan = "#22D3EE"
+        green = "#34D399"
+        amber = "#FBBF24"
+
+        header = ft.Row(
+            spacing=14,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[
+                ft.Container(
+                    width=52, height=52,
+                    alignment=ft.Alignment.CENTER,
+                    border_radius=16,
+                    gradient=ft.LinearGradient(
+                        begin=ft.Alignment.TOP_LEFT,
+                        end=ft.Alignment.BOTTOM_RIGHT,
+                        colors=["#6280FF", "#A65CF6"],
+                    ),
+                    shadow=ft.BoxShadow(blur_radius=22, spread_radius=-6,
+                                        color="#997D8CFF"),
+                    content=ft.Icon(ft.Icons.AUTO_AWESOME_MOSAIC, size=25,
+                                    color="#FFFFFF"),
+                ),
+                ft.Column(
+                    spacing=2,
+                    controls=[
+                        ft.Text("A E T H E R I S", size=20,
+                                weight=ft.FontWeight.BOLD, color=AppColors.TEXT),
+                        ft.Text("Digital Imaging Lab  ·  CSE 220 Signal Lab Project",
+                                size=10, color=AppColors.TEXT_SECONDARY),
+                    ],
+                ),
+                ft.Container(expand=True),
+                ft.Container(
+                    padding=ft.Padding.symmetric(horizontal=10, vertical=5),
+                    border_radius=999,
+                    bgcolor="#1A22D3EE",
+                    border=ft.Border.all(1, "#4422D3EE"),
+                    content=ft.Text("v1.0", size=9, weight=ft.FontWeight.BOLD,
+                                    color=cyan),
+                ),
+            ],
+        )
+
+        intro = ft.Text(
+            "AETHERIS turns an image into something you can take apart. Every "
+            "picture here is treated two ways at once: as a grid of pixels a "
+            "kernel can slide over, and as a stack of waves a spectrum can "
+            "describe. The same photograph, the same maths, two points of view.",
+            size=11, color=AppColors.TEXT_SECONDARY,
+        )
+
+        stats = ft.Row(
+            spacing=10,
+            wrap=True,
+            run_spacing=10,
+            controls=[
+                self._about_stat("12", "processing features", violet),
+                self._about_stat("9", "animated lessons", amber),
+                self._about_stat("2", "domains, one story", cyan),
+                self._about_stat("0", "black boxes", green),
+            ],
+        )
+
+        facts = ft.Column(
+            spacing=7,
+            controls=[
+                self._about_fact(
+                    "The 2D convolution and the 2D DFT are written from scratch, "
+                    "not called from a library. The DFT matches NumPy's FFT "
+                    "exactly on the lesson image.", cyan),
+                self._about_fact(
+                    "About 1% of an image's frequency coefficients carry over 90% "
+                    "of it — the fact every image compressor is built on.", amber),
+                self._about_fact(
+                    "A Gaussian blur is run twice: once as a full 2D kernel and "
+                    "once as two 1D passes, to show the K² to 2K saving in "
+                    "measured seconds.", violet),
+                self._about_fact(
+                    "Blur it, then take it back: motion blur pairs with Wiener "
+                    "deconvolution, so degradation and restoration are the same "
+                    "lesson from both ends.", green),
+                self._about_fact(
+                    "Every lesson checks its own arithmetic against the app's "
+                    "algorithms before animating it, so nothing on screen is a "
+                    "decorative number.", cyan),
+            ],
+        )
+
+        authors = ft.Row(
+            spacing=12,
+            wrap=True,
+            run_spacing=12,
+            controls=[
+                self._about_author(
+                    "Dola", "Spatial domain · restoration · resampling", "D",
+                    "#7D8CFF",
+                    [
+                        "Manual 2D convolution, reused across every spatial tool",
+                        "Blur & sharpen, edge detection, noise cleaning",
+                        "Resizing, motion blur, separable Gaussian, Wiener",
+                    ],
+                ),
+                self._about_author(
+                    "Shreya", "Frequency domain · analysis · interface", "S",
+                    "#F472B6",
+                    [
+                        "Manual 2D DFT, reused across every frequency tool",
+                        "Frequency editor, compression, texture, hybrids, colour",
+                        "The AETHERIS interface, and the Discover lessons",
+                    ],
+                ),
+            ],
+        )
+
+        built_with = ft.Row(
+            spacing=7,
+            wrap=True,
+            run_spacing=7,
+            controls=[
+                ft.Container(
+                    padding=ft.Padding.symmetric(horizontal=9, vertical=5),
+                    border_radius=8,
+                    bgcolor=AppColors.SURFACE_3,
+                    border=ft.Border.all(1, AppColors.BORDER_SOFT),
+                    content=ft.Text(name, size=9, color=AppColors.TEXT_SECONDARY),
+                )
+                for name in ("Python 3.11", "Flet 0.86", "NumPy", "Pillow",
+                             "Matplotlib", "OpenCV")
+            ],
+        )
+
+        body = ft.Column(
+            tight=True,
+            spacing=18,
+            scroll=ft.ScrollMode.AUTO,
+            controls=[
+                header,
+                ft.Divider(height=1, color=AppColors.BORDER_SOFT),
+                intro,
+                stats,
+                self._about_section("Things worth knowing", amber, facts),
+                self._about_section("Built by", violet, authors),
+                self._about_section("Built with", cyan, built_with),
+                ft.Text(
+                    "Spatial-domain convolution and frequency-domain Fourier "
+                    "analysis, in one interactive workspace.",
+                    size=10, italic=True, color=AppColors.MUTED,
+                ),
+            ],
+        )
 
         self.page.show_dialog(
             ft.AlertDialog(
                 modal=True,
-                title=ft.Row(
-                    spacing=10,
-                    controls=[
-                        ft.Icon(
-                            ft.Icons.INFO_OUTLINE,
-                            color=AppColors.PURPLE_LIGHT,
-                        ),
-                        ft.Text(
-                            "About Signal Studio",
-                            weight=ft.FontWeight.BOLD,
-                        ),
-                    ],
-                ),
+                bgcolor="#0A1120",
+                content_padding=ft.Padding.all(0),
                 content=ft.Container(
-                    width=440,
-                    content=ft.Column(
-                        tight=True,
-                        spacing=12,
-                        controls=[
-                            ft.Text(
-                                "AETHERIS",
-                                size=17,
-                                weight=ft.FontWeight.BOLD,
-                                color=AppColors.TEXT,
-                            ),
-                            
-                            ft.Divider(color=AppColors.BORDER_SOFT),
-                            ft.Text(
-                                "A desktop image-processing workspace that "
-                                "demonstrates spatial-domain convolution and "
-                                "frequency-domain 2D DFT processing through "
-                                "interactive visual tools.",
-                                size=11,
-                                color=AppColors.TEXT_SECONDARY,
-                            ),
-                            ft.Row(
-                                spacing=8,
-                                wrap=True,
-                                controls=[
-                                    ft.Chip(label=ft.Text("12 DSP Features")),
-                                    ft.Chip(label=ft.Text("Spatial Domain")),
-                                    ft.Chip(label=ft.Text("Frequency Domain")),
-                                    ft.Chip(label=ft.Text("PSNR")),
-                                    ft.Chip(label=ft.Text("Python + Flet")),
-                                ],
-                            ),
-                            ft.Divider(color=AppColors.BORDER_SOFT),
-                            ft.Text(
-                                "Signal Studio • Version 1.0",
-                                size=10,
-                                color=AppColors.MUTED,
-                            ),
-                        ],
-                    ),
+                    width=700,
+                    height=620,
+                    padding=24,
+                    content=body,
                 ),
                 actions=[
-                    ft.TextButton("Close", on_click=close_dialog),
+                    ft.TextButton("Close", icon=ft.Icons.CLOSE_ROUNDED,
+                                  on_click=close_dialog),
                 ],
                 actions_alignment=ft.MainAxisAlignment.END,
             )
