@@ -196,7 +196,7 @@ def create_hybrid_image(
     # ============================================
 
     low_result = np.clip(
-        low_result,
+        np.round(low_result),
         0,
         255
     ).astype(
@@ -205,7 +205,7 @@ def create_hybrid_image(
 
 
     hybrid_result = np.clip(
-        hybrid_result,
+        np.round(hybrid_result),
         0,
         255
     ).astype(
@@ -217,7 +217,7 @@ def create_hybrid_image(
     # negative values.
     # Add 128 only for visualization.
     high_display = np.clip(
-        high_result + 128,
+        np.round(high_result + 128),
         0,
         255
     ).astype(

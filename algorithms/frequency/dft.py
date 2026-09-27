@@ -176,7 +176,7 @@ def reconstruct_from_dft(frequency):
     reconstructed = np.real(reconstructed)
 
     reconstructed = np.clip(
-        reconstructed,
+        np.round(reconstructed),
         0,
         255
     )

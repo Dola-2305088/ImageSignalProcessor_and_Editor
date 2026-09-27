@@ -697,3 +697,24 @@ class TopBar:
 
         self.save_button.update()
         self.reset_shell.update()
+
+    def set_image_actions_visible(
+        self,
+        visible,
+    ):
+        """Hide Open / Save / Reset on pages with their own fixed stage.
+
+        Discover lessons and the SaveEarth game use built-in scenes, so
+        the image-editing actions would only confuse there.
+        """
+        for control in (
+            self.open_button,
+            self.save_button,
+            self.reset_shell,
+        ):
+            control.visible = visible
+
+            try:
+                control.update()
+            except Exception:
+                pass
