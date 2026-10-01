@@ -59,30 +59,31 @@ class TopBar:
     @staticmethod
     def _logo_path():
         """
-        Resolve the AETHERIS top-bar logo without depending on the
-        process working directory.
+        Resolve the AETHERIS top-bar logo as a path RELATIVE to the
+        assets folder (main.py runs with assets_dir="assets").
 
-        Recommended project location:
-            assets/aetheris_topbar_logo.png
+        Relative asset paths work in both the desktop app and the
+        browser. Absolute disk paths only work on desktop, because
+        a browser can only fetch files the server publishes from
+        the assets folder.
         """
         current_file = Path(__file__).resolve()
 
         # Expected structure: <project>/ui/components/top_bar.py
-        project_root = current_file.parents[2]
+        assets_dir = current_file.parents[2] / "assets"
 
         candidates = [
-            project_root / "assets" / "aetheris_topbar_logo.png",
-            project_root / "assets" / "logo.png",
-            project_root / "aetheris_topbar_logo.png",
+            "aetheris_topbar_logo.png",
+            "logo.png",
+            "images/logo.png",
         ]
 
-        for candidate in candidates:
-            if candidate.exists():
-                return str(candidate)
+        for rel_path in candidates:
+            if (assets_dir / rel_path).exists():
+                return rel_path
 
-        # Safe fallback for projects launched with Flet's assets_dir.
-        return "assets/images/logo.png"
-
+        # Same file the Home orbit logo uses.
+        return "images/logo.png"
     def _aetheris_logo_image(self):
         return ft.Image(
             src=self._logo_path(),
