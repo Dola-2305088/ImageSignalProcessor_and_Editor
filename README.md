@@ -372,6 +372,11 @@ python -m venv venv
 pip install -r requirements.txt
 
 python main.py
+
+**Run as a desktop app:**
+pip install -r requirements.txt
+pip install flet-desktop==0.86.5
+python main.py
 ```
 
 ### macOS / Linux
