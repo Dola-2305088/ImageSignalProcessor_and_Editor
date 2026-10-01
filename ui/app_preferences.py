@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import getpass
 import json
+import os
 import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -58,8 +59,23 @@ LEGACY_WORKSPACES = {
 }
 
 
+def _is_web_server() -> bool:
+    """True when AETHERIS is served to browsers (Hugging Face / web mode)."""
+    return os.getenv("FLET_FORCE_WEB_SERVER", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+
+
 def _default_display_name() -> str:
-    raw_name = getpass.getuser().strip()
+    # On the public server, getpass would return the server's account name.
+    if _is_web_server():
+        return "Explorer"
+    try:
+        raw_name = getpass.getuser().strip()
+    except Exception:
+        raw_name = ""
     cleaned = re.sub(r"[._-]+", " ", raw_name).strip()
     return cleaned.title() if cleaned else "User"
 
@@ -88,13 +104,22 @@ class PreferencesStore:
 
     def __init__(self, path: Path | None = None):
         self.path = path or Path.home() / ".signal_studio" / "profile.json"
+        # On the web server every visitor shares one disk, so keep the
+        # profile in memory for this visitor's session instead of a file.
+        self.in_memory = _is_web_server()
+        self._memory_data: dict | None = None
 
     def load(self) -> AppProfile:
         defaults = AppProfile(name=_default_display_name())
-        try:
-            data = json.loads(self.path.read_text(encoding="utf-8"))
-        except (OSError, ValueError, TypeError):
-            return defaults
+        if self.in_memory:
+            data = self._memory_data
+            if data is None:
+                return defaults
+        else:
+            try:
+                data = json.loads(self.path.read_text(encoding="utf-8"))
+            except (OSError, ValueError, TypeError):
+                return defaults
 
         return AppProfile(
             name=self._clean_name(data.get("name"), defaults.name),
@@ -112,6 +137,10 @@ class PreferencesStore:
                 profile.workspace, WORKSPACE_OPTIONS[0]
             ),
         )
+        if self.in_memory:
+            self._memory_data = asdict(normalized)
+            return
+
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temporary_path = self.path.with_suffix(".tmp")
         temporary_path.write_text(
