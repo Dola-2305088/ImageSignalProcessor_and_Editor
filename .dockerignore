@@ -1,0 +1,6 @@
+.git
+__pycache__/
+*.pyc
+.venv/
+build/
+game/_smoke_out/
