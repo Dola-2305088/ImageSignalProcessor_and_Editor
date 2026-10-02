@@ -48,11 +48,20 @@ def create_motion_kernel(
         45 degrees  -> diagonal
         90 degrees  -> vertical
 
+        Angles use image coordinates: rows grow downwards, so a
+        positive angle turns clockwise on screen (45 degrees runs
+        from top-left to bottom-right). The texture analyzer and the
+        Discover lessons use the same convention.
+
     Returns
     -------
     numpy.ndarray
         Normalized 2D motion blur kernel.
     """
+
+    # Slider values arrive as floats (15.0); kernel sizes must be ints.
+    length = int(round(float(length)))
+    angle = float(angle)
 
     if length <= 0:
         raise ValueError(
@@ -214,4 +223,4 @@ def motion_blur_quality(
 
     return {
         "psnr": psnr
-    }
+    }

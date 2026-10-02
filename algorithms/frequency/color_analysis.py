@@ -7,6 +7,32 @@ from algorithms.frequency.dft import (
 
 
 # ============================================================
+# INPUT NORMALISATION
+# ============================================================
+
+def _as_rgb(image):
+    """
+    Return an H x W x 3 view of the image.
+
+    PNG files often carry a 4th (alpha) channel, and some photos are
+    grayscale. Neither should crash the colour analyzer: alpha is
+    dropped and a grayscale image becomes three equal channels.
+    """
+
+    image = np.asarray(image)
+
+    if image.ndim == 2:
+        return np.dstack([image, image, image])
+
+    if image.ndim == 3 and image.shape[2] >= 3:
+        return image[:, :, :3]
+
+    raise ValueError(
+        "Expected an RGB image."
+    )
+
+
+# ============================================================
 # SPLIT RGB CHANNELS
 # ============================================================
 
@@ -16,14 +42,9 @@ def split_rgb_channels(image):
     """
 
     image = np.asarray(
-        image,
+        _as_rgb(image),
         dtype=np.uint8
     )
-
-    if image.ndim != 3 or image.shape[2] != 3:
-        raise ValueError(
-            "Expected an RGB image."
-        )
 
     red = image[:, :, 0]
     green = image[:, :, 1]
@@ -92,14 +113,9 @@ def rgb_to_ycbcr(image):
     """
 
     image = np.asarray(
-        image,
+        _as_rgb(image),
         dtype=np.float64
     )
-
-    if image.ndim != 3 or image.shape[2] != 3:
-        raise ValueError(
-            "Expected an RGB image."
-        )
 
     r = image[:, :, 0]
     g = image[:, :, 1]
@@ -213,4 +229,4 @@ def get_channel_statistics(channel):
         "std": float(np.std(channel)),
         "min": float(np.min(channel)),
         "max": float(np.max(channel))
-    }
+    }

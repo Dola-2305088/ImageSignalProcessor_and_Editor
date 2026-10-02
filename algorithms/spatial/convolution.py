@@ -39,6 +39,11 @@ def convolve2d_gray_loop(image, kernel):
     if kernel_height % 2 == 0 or kernel_width % 2 == 0:
         raise ValueError("Kernel dimensions must be odd.")
 
+    # A NaN or infinite weight (e.g. "inf" typed into a kernel cell)
+    # would silently turn the whole result into garbage.
+    if not np.all(np.isfinite(kernel)):
+        raise ValueError("Every kernel value must be a finite number.")
+
     pad_height = kernel_height // 2
     pad_width = kernel_width // 2
 
@@ -117,6 +122,11 @@ def convolve2d_gray(image, kernel):
     if kernel_height % 2 == 0 or kernel_width % 2 == 0:
         raise ValueError("Kernel dimensions must be odd.")
 
+    # A NaN or infinite weight (e.g. "inf" typed into a kernel cell)
+    # would silently turn the whole result into garbage.
+    if not np.all(np.isfinite(kernel)):
+        raise ValueError("Every kernel value must be a finite number.")
+
     pad_height = kernel_height // 2
     pad_width = kernel_width // 2
 
@@ -190,4 +200,4 @@ def convolve2d(image, kernel):
         return output
 
     else:
-        raise ValueError("Unsupported image format.")
+        raise ValueError("Unsupported image format.")

@@ -572,14 +572,19 @@ def compare_quality(
         cleaned
     )
 
-    improvement = (
-        cleaned_psnr
-        -
-        noisy_psnr
-    )
+    # PSNR is infinite for a perfect match. inf - inf would be NaN,
+    # so handle the identical-image cases explicitly.
+    if np.isinf(cleaned_psnr) and np.isinf(noisy_psnr):
+        improvement = 0.0
+    else:
+        improvement = (
+            cleaned_psnr
+            -
+            noisy_psnr
+        )
 
     return {
         "noisy_psnr": noisy_psnr,
         "cleaned_psnr": cleaned_psnr,
         "improvement": improvement
-    }
+    }

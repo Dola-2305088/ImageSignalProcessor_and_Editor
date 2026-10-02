@@ -108,7 +108,8 @@ class TextureTrace:
             "angle": float(result.get("texture_angle", 0.0)),
             "orientation": result.get("orientation", "—"),
             "strength": float(result.get("periodicity_strength", 0.0)),
-            "peak": (int(result.get("peak_row", 0)), int(result.get("peak_col", 0))),
+            # A flat image has no peak: the analyzer reports None.
+            "peak": (int(result.get("peak_row") or 0), int(result.get("peak_col") or 0)),
         }
 
     def rotation_series(self, kind="Cloth", spacing=None, angles=(0, 20, 45, 70)):
