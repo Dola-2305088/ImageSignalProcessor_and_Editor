@@ -7,7 +7,7 @@
 <p><strong>Learn it. See it. Play it. — 12 image-processing tools built on hand-written 2D convolution and 2D DFT</strong></p>
 
 <p>
-  <a href="https://aetheris.onrender.com">
+  <a href="https://aetheris-imageprocessorandsimulator.onrender.com">
     <img src="https://img.shields.io/badge/Live%20App-Open%20AETHERIS-7C3AED?style=for-the-badge" alt="Open the live AETHERIS app" />
   </a>
 </p>
@@ -44,7 +44,7 @@
 
 ## Try It Online
 
-**Live app: [aetheris.onrender.com](https://aetheris.onrender.com)**
+**Live app: [aetheris-imageprocessorandsimulator.onrender.com](https://aetheris-imageprocessorandsimulator.onrender.com)**
 
 | | |
 |---|---|
@@ -506,7 +506,7 @@ The live app is the same Flet code, served to browsers as a web app from a Docke
 
 <br />
 
-<a href="https://aetheris.onrender.com"><strong>Open the live app →</strong></a>
+<a href="https://aetheris-imageprocessorandsimulator.onrender.com"><strong>Open the live app →</strong></a>
 
 <br />
 
