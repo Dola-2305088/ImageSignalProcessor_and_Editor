@@ -1341,6 +1341,7 @@ class ImageProcessorApp:
             self.current_dft = None
             self.current_dft_source = None
             self.current_compressed_dft = None
+            self._clear_image_dependent_state()
 
             # Update Home while mounted, then open the saved startup
             # page. Falls back to the first spatial feature so opening an
@@ -1389,13 +1390,28 @@ class ImageProcessorApp:
                 src_bytes=self.processed_bytes,
             )
 
-            if path:
-                self._toast(
-                    f"Saved result: {os.path.basename(path)}"
-                )
+            if self.page.web:
+                # In a browser, Flet hands src_bytes to the browser as a
+                # download, so no file path ever comes back to Python.
+                self._toast("Download started: processed_result.png")
                 self._set_status(
-                    f"Saved processed result to {path}"
+                    "Processed result sent to your browser's downloads"
                 )
+                return
+
+            if not path:
+                return  # dialog cancelled
+
+            # On desktop, write the bytes ourselves so saving works on
+            # every OS, whether or not Flet already wrote the file.
+            if not path.lower().endswith(".png"):
+                path += ".png"
+
+            with open(path, "wb") as file:
+                file.write(self.processed_bytes)
+
+            self._toast(f"Saved result: {os.path.basename(path)}")
+            self._set_status(f"Saved processed result to {path}")
 
         except Exception as error:
             self._toast(
@@ -1474,6 +1490,22 @@ class ImageProcessorApp:
     # =========================================================
     # SPATIAL HELPERS
     # =========================================================
+
+    def _clear_image_dependent_state(self):
+        """Forget intermediate results computed from the previous image.
+
+        Noise Cleaner reuses the noisy image from "Add noise", and
+        Wiener reuses the blurred image and kernel from Motion Blur
+        Lab. If those survived an image change, they would be compared
+        against the NEW original: a shape error when the sizes differ,
+        or a meaningless PSNR (and the old picture restored) when they
+        match.
+        """
+        self.noisy_image = None
+        self.noisy_label = None
+        self.motion_kernel = None
+        self.motion_blurred = None
+        self.motion_params = None
 
     def _image_array(self):
         """Current original image as a uint8 RGB array."""
@@ -2822,6 +2854,7 @@ class ImageProcessorApp:
             self.current_dft = None
             self.current_dft_source = None
             self.current_compressed_dft = None
+            self._clear_image_dependent_state()
 
             self._set_original_preview(image, name)
             self.home_view.set_session_name(name, refresh=False)
@@ -3227,4 +3260,4 @@ class ImageProcessorApp:
             facecolor=fig.get_facecolor(),
         )
         plt.close(fig)
-        return buffer.getvalue()
+        return buffer.getvalue()
