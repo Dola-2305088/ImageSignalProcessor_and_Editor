@@ -1,10 +1,18 @@
 <div align="center">
 
-<img src="docs/screenshots/logo.png" alt="AETHERIS Logo" width="140" height="140" />
+<img src="docs/branding/aetheris_logo.png" alt="AETHERIS · Digital Imaging Lab" width="320" />
 
 <h1>AETHERIS &nbsp;·&nbsp; Image Signal Processor &amp; Editor</h1>
 
 <p><strong>Learn it. See it. Play it. — 12 image-processing tools built on hand-written 2D convolution and 2D DFT</strong></p>
+
+<p>
+  <a href="https://aetheris.onrender.com">
+    <img src="https://img.shields.io/badge/Live%20App-Open%20AETHERIS-7C3AED?style=for-the-badge" alt="Open the live AETHERIS app" />
+  </a>
+</p>
+
+<p><sub>Runs in any modern browser, no installation needed. The first visit after a quiet spell can take about a minute while the free server wakes up.</sub></p>
 
 <p>
   <img src="https://img.shields.io/badge/Python-3.11-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.11" />
@@ -31,6 +39,21 @@
 </div>
 
 <img src="docs/screenshots/home.png" alt="AETHERIS Home screen: three mode cards, the feature orbit around the logo, and the spatial and frequency pipelines" width="100%" />
+
+---
+
+## Try It Online
+
+**Live app: [aetheris.onrender.com](https://aetheris.onrender.com)**
+
+| | |
+|---|---|
+| **Open** | Click the link, wait for the splash screen, then use **Open Image** to load any JPG, PNG, BMP, TIFF or WebP. |
+| **Save** | **Save Result** downloads the processed image to your device. |
+| **Privacy** | Images are processed in memory for your session only and are not stored on the server. |
+| **Wake-up** | The free server sleeps after 15 minutes without visitors; the next visit takes about a minute to start. |
+| **Speed** | The online server has a small CPU, so heavier tools (median filter, hybrid images, Wiener sweep) take a few seconds longer than on a laptop. |
+| **Sound** | SaveEarth's sound effects play in the desktop app only. |
 
 ---
 
@@ -165,9 +188,9 @@ The one rule the whole codebase follows: **the UI never re-implements maths.** V
 | **Numerics** | NumPy | Array maths for the manual convolution and DFT |
 | **Images** | Pillow | Loading, saving and format conversion |
 | **Plots** | Matplotlib | Spectra, histograms and charts |
-| **Vision utils** | OpenCV (`opencv-python`) | Helper I/O and colour conversions |
 | **Concurrency** | `asyncio.to_thread` | Heavy algorithms run off the UI thread, so the window never freezes |
 | **Version control** | Git + GitHub | `Dola`, `shreya`, `learning-mode`, `gameMode` → `main` via pull requests |
+| **Deployment** | Docker · Render | The same Flet app served to browsers; every push to `main` redeploys automatically |
 
 ---
 
@@ -251,6 +274,7 @@ Each lesson backend in `algorithms/learning/` is UI-free and exposes `verify()`,
 |---|---|
 | Box blur 5×5, 720×540 RGB | 3.9 s → **0.06 s** |
 | Median 3×3, 720×540 RGB | 13.8 s → **0.22 s** |
+| Bilinear resize, 800×600 → 1600×1200 RGB | 11.1 s → **0.29 s** (identical output to the loop version) |
 | Separable Gaussian speed-up | **2.42×** measured (3.5× in theory), identical output (MAE 0) |
 | `manual_dft2` vs `numpy.fft.fft2` | max error **0.0** |
 | Compression | 90% of the energy in **65 of 9,216** coefficients |
@@ -312,6 +336,8 @@ Beings from planet **Aetheris** arrive in Earth's orbit seeking friendship, but 
 ImageSignalProcessor_and_Editor/
 ├── main.py                          # App entry point
 ├── requirements.txt
+├── Dockerfile                       # Web deployment (Flet web server)
+├── .dockerignore
 ├── algorithms/
 │   ├── spatial/                     # Dola
 │   │   ├── convolution.py           # Manual 2D convolution (vectorised + loop reference)
@@ -353,9 +379,14 @@ ImageSignalProcessor_and_Editor/
 ├── utils/
 │   ├── metrics.py                   # calculate_psnr()
 │   └── image_utils.py
+├── tests/
+│   ├── test_backend.py              # 189 correctness + speed checks for all algorithms
+│   └── test_custom_kernel.py        # Custom-kernel edge cases
 ├── assets/
 ├── test_images/
-└── docs/screenshots/                # Images used in this README
+└── docs/
+    ├── branding/                    # Logo used in this README
+    └── screenshots/                 # Screenshots used in this README
 ```
 
 ---
@@ -370,12 +401,8 @@ cd ImageSignalProcessor_and_Editor
 python -m venv venv
 .\venv\Scripts\activate
 pip install -r requirements.txt
+pip install flet-desktop==0.86.5     # desktop window support
 
-python main.py
-
-**Run as a desktop app:**
-pip install -r requirements.txt
-pip install flet-desktop==0.86.5
 python main.py
 ```
 
@@ -387,8 +414,30 @@ cd ImageSignalProcessor_and_Editor
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
+pip install flet-desktop==0.86.5     # desktop window support
 
 python main.py
+```
+
+### In your browser, without a desktop window
+
+```powershell
+# PowerShell
+$env:FLET_FORCE_WEB_SERVER="true"; $env:FLET_SERVER_PORT="7860"; python main.py
+```
+
+```bash
+# macOS / Linux
+FLET_FORCE_WEB_SERVER=true FLET_SERVER_PORT=7860 python main.py
+```
+
+Then open http://localhost:7860.
+
+### With Docker (exactly what the live server runs)
+
+```bash
+docker build -t aetheris .
+docker run -p 7860:7860 aetheris
 ```
 
 ### Quick demo path
@@ -403,15 +452,32 @@ SaveEarth → play one round
 ### Checks
 
 ```bash
-python -m game.smoke_test     # SaveEarth: signatures, fairness, balance, rules
+python tests/test_backend.py         # 189 checks: every algorithm vs references, lessons, speed
+python tests/test_custom_kernel.py   # custom-kernel edge cases (flip, overflow, NaN, RGB)
+python -m game.smoke_test            # SaveEarth: signatures, fairness, balance, rules
 ```
+
+`test_backend.py` can run one group at a time, e.g. `python tests/test_backend.py resize`.
+
+---
+
+## Deployment
+
+The live app is the same Flet code, served to browsers as a web app from a Docker container on [Render](https://render.com) (free tier, Singapore region).
+
+- `Dockerfile` installs `requirements.txt` and starts Flet in web-server mode on the port Render provides.
+- Render watches the `main` branch: **every push to `main` rebuilds and redeploys the live app** within a few minutes.
+- Work on feature branches never reaches the live app until it is merged into `main`.
 
 ---
 
 ## Roadmap
 
 - [ ] SaveEarth animation layer: intro story, orbiting Aetheris ships, mood meter, animated endings
-- [ ] Vectorise `resize.py` so the 720 px working-size cap can be raised
+- [x] Vectorise `resize.py` (11 s → 0.3 s for a 2× enlargement)
+- [x] Publish AETHERIS as a live web app
+- [ ] Raise the 720 px working-size cap now that every tool is vectorised
+- [ ] Remember visitors' settings across visits in the web version
 - [ ] Move `ycbcr_to_rgb` next to `rgb_to_ycbcr` in `color_analysis.py`
 - [ ] Optional SaveEarth questions for Separable Gaussian and Image Resizer
 - [ ] Save processed images as live thumbnails in Recent Projects
@@ -432,11 +498,15 @@ python -m game.smoke_test     # SaveEarth: signatures, fairness, balance, rules
 
 <div align="center">
 
-<img src="docs/screenshots/logo.png" alt="AETHERIS" width="56" />
+<img src="docs/branding/aetheris_logo.png" alt="AETHERIS" width="96" />
 
 <br />
 
 **AETHERIS** &nbsp;·&nbsp; *Your Image Processing Universe*
+
+<br />
+
+<a href="https://aetheris.onrender.com"><strong>Open the live app →</strong></a>
 
 <br />
 
