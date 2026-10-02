@@ -22,4 +22,4 @@ RUN pip install --no-cache-dir --upgrade pip && \
 COPY --chown=user . .
 
 EXPOSE 7860
-CMD ["python", "main.py"]
+CMD ["sh", "-c", "FLET_SERVER_PORT=${PORT:-7860} python main.py"]
